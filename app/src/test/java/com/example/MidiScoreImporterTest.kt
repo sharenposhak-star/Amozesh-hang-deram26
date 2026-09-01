@@ -69,6 +69,37 @@ class MidiScoreImporterTest {
         assertTrue(fixture.contentEquals(original))
     }
 
+    @Test
+    fun pairsOverlappingSamePitchNotesFifoAndKeepsSimultaneousNotes() {
+        val events = (BinaryMidiScoreImporter().import(overlappingNotesFixture(), "overlap") as SymbolicImportResult.Success).score.events
+
+        assertEquals(3, events.size)
+        assertEquals(listOf(0.0, 0.0, 0.25), events.map { it.beatPosition })
+        assertEquals(listOf(0.5, 1.0, 0.75), events.map { it.durationBeats })
+    }
+
+    @Test
+    fun rejectsUnmatchedNoteOffUnclosedNoteMalformedVlqAndTrackBoundary() {
+        val importer = BinaryMidiScoreImporter()
+
+        assertEquals(SymbolicImportError.PARSE_FAILED, failure(importer.import(unmatchedNoteOffFixture(), "off")).error)
+        assertEquals(SymbolicImportError.PARSE_FAILED, failure(importer.import(unclosedNoteFixture(), "on")).error)
+        assertEquals(SymbolicImportError.PARSE_FAILED, failure(importer.import(malformedVlqFixture(), "vlq")).error)
+        assertEquals(SymbolicImportError.PARSE_FAILED, failure(importer.import(invalidChunkLengthFixture(), "chunk")).error)
+    }
+
+    @Test
+    fun deduplicatesIdenticalTempoAndTimeSignatureChangesAndPreservesSourceHash() {
+        val fixture = duplicateMetaFixture()
+        val first = BinaryMidiScoreImporter().import(fixture, "meta") as SymbolicImportResult.Success
+        val second = BinaryMidiScoreImporter().import(fixture, "meta") as SymbolicImportResult.Success
+
+        assertEquals(1, first.score.tempoMap.size)
+        assertEquals(1, first.score.timeSignatureMap.size)
+        assertEquals(first, second)
+        assertTrue(first.score.metadata.sourceHash?.isNotBlank() == true)
+    }
+
     private fun failure(result: SymbolicImportResult): SymbolicImportResult.Failure {
         assertTrue(result is SymbolicImportResult.Failure)
         return result as SymbolicImportResult.Failure
@@ -97,6 +128,28 @@ class MidiScoreImporterTest {
     private fun truncatedTrackEventFixture(): ByteArray = midi(0, track(0x00, 0x90, 0x3C))
 
     private fun invalidRunningStatusFixture(): ByteArray = midi(0, track(0x00, 0x3C, 0x40, 0x00, 0xFF, 0x2F, 0x00))
+
+    private fun overlappingNotesFixture(): ByteArray = midi(
+        0,
+        track(0x00, 0x90, 0x3C, 0x40, 0x00, 0x90, 0x3C, 0x50, 0x3C, 0x80, 0x3C, 0x20, 0x00, 0x80, 0x3C, 0x20, 0x00, 0x90, 0x3C, 0x60, 0x3C, 0x80, 0x3C, 0x20, 0x00, 0xFF, 0x2F, 0x00)
+    )
+
+    private fun unmatchedNoteOffFixture(): ByteArray = midi(0, track(0x00, 0x80, 0x3C, 0x20, 0x00, 0xFF, 0x2F, 0x00))
+
+    private fun unclosedNoteFixture(): ByteArray = midi(0, track(0x00, 0x90, 0x3C, 0x40, 0x00, 0xFF, 0x2F, 0x00))
+
+    private fun malformedVlqFixture(): ByteArray = midi(0, track(0x80, 0x80, 0x80, 0x80, 0x00, 0xFF, 0x2F, 0x00))
+
+    private fun invalidChunkLengthFixture(): ByteArray = formatZeroFixture().also {
+        it[17] = 0x7F
+    }
+
+    private fun duplicateMetaFixture(): ByteArray = midi(
+        1,
+        track(0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20, 0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20,
+            0x00, 0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08, 0x00, 0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08, 0x00, 0xFF, 0x2F, 0x00),
+        track(0x00, 0xFF, 0x2F, 0x00)
+    )
 
     private fun midi(format: Int, vararg tracks: ByteArray): ByteArray = byteArrayOf(
         0x4D, 0x54, 0x68, 0x64, 0x00, 0x00, 0x00, 0x06,

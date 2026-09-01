@@ -157,7 +157,10 @@ data class SymbolicScore(
     }
 
     val events: List<SymbolicMusicalEvent>
-        get() = tracks.flatMap { it.events }.sortedWith(compareBy({ it.beatPosition }, { it.eventId }))
+        get() = tracks.flatMapIndexed { trackIndex, track ->
+            track.events.mapIndexed { eventIndex, event -> Triple(event, trackIndex, eventIndex) }
+        }.sortedWith(compareBy<Triple<SymbolicMusicalEvent, Int, Int>>({ it.first.beatPosition }, { it.second }, { it.third })
+        ).map { it.first }
 }
 
 data class NormalizedMusicalEvent(

@@ -26,6 +26,12 @@ class StandardMusicXmlScoreImporter {
                 "score-timewise" -> {
                     val measures = root.children("measure")
                     if (measures.isEmpty()) return failure(SymbolicImportError.INVALID_SOURCE, "MusicXML requires at least one measure")
+                    val unknownPart = measures.asSequence()
+                        .flatMap { it.children("part").asSequence() }
+                        .firstOrNull { it.attribute("id") !in partDefinitions }
+                    if (unknownPart != null) {
+                        return failure(SymbolicImportError.INVALID_SOURCE, "Every timewise part must have a matching score-part")
+                    }
                     partDefinitions.keys.map { partId ->
                         partId to measures.mapNotNull { measure ->
                             measure.children("part").firstOrNull { it.attribute("id") == partId }?.let { part ->
@@ -46,8 +52,12 @@ class StandardMusicXmlScoreImporter {
             val allEvents = parsed.flatMap { it.events }
             val tempos = parsed.flatMap { it.tempos }.sortedWith(compareBy({ it.beatPosition }, { it.bpm }))
                 .distinctBy { it.beatPosition to it.bpm }
-            val signatures = parsed.flatMap { it.signatures }.sortedBy { it.beatPosition }.distinctBy { it.beatPosition }
-            val keys = parsed.flatMap { it.keys }.sortedBy { it.beatPosition }.distinctBy { it.beatPosition }
+            val signatures = parsed.flatMap { it.signatures }
+                .sortedWith(compareBy({ it.beatPosition }, { it.timeSignature.numerator }, { it.timeSignature.denominator }))
+                .distinctBy { it.beatPosition to it.timeSignature }
+            val keys = parsed.flatMap { it.keys }
+                .sortedWith(compareBy({ it.beatPosition }, { it.key ?: "" }, { it.mode ?: "" }))
+                .distinctBy { it.beatPosition to it.key to it.mode }
             val tracks = parsed.map { result ->
                 SymbolicTrack(trackId = result.trackId, instrument = result.instrument, events = result.events)
             }
@@ -127,7 +137,8 @@ class StandardMusicXmlScoreImporter {
 
             var cursor = 0.0
             var measureEnd = 0.0
-            var previousStart = 0.0
+            val previousStarts = mutableMapOf<VoiceStaffKey, Double>()
+            val previousEventIndices = mutableMapOf<VoiceStaffKey, Int>()
             val expectedMeasureBeats = signatures.lastOrNull()?.timeSignature?.beatsPerBar?.toDouble()
             measure.children().forEach { item ->
                 when (item.localNameOrTag()) {
@@ -144,15 +155,17 @@ class StandardMusicXmlScoreImporter {
                     "note" -> {
                         val duration = durationInBeats(item, currentDivisions, measureNumber)
                         val isChord = item.child("chord") != null
-                        val start = if (isChord) previousStart else cursor
+                        val voiceStaff = VoiceStaffKey(item.child("voice")?.textValue(), item.child("staff")?.textValue())
+                        val start = if (isChord) previousStarts[voiceStaff] ?: cursor else cursor
                         val event = parseNote(item, sourceId, partId, measureNumber, absoluteBeat + start, duration, ordinal, isChord)
                         val tieTypes = item.children("tie").mapNotNull { it.attribute("type") }
                         val tieKey = TieKey(partId, event.voiceId, item.child("staff")?.textValue(), event.pitch?.midiNumber)
                         val priorIndex = tiedEvents[tieKey]
-                        if (isChord && events.isNotEmpty()) {
+                        val priorChordIndex = previousEventIndices[voiceStaff]
+                        if (isChord && priorChordIndex != null) {
                             val chordId = "$partId-$measureNumber-${absoluteBeat + start}-${event.voiceId}-${item.child("staff")?.textValue()}"
-                            val priorEvent = events.last()
-                            events[events.lastIndex] = priorEvent.copy(chordGroupId = chordId)
+                            val priorEvent = events[priorChordIndex]
+                            events[priorChordIndex] = priorEvent.copy(chordGroupId = chordId)
                         }
                         if (priorIndex != null && "stop" in tieTypes) {
                             val prior = events[priorIndex]
@@ -165,7 +178,8 @@ class StandardMusicXmlScoreImporter {
                             if ("start" in tieTypes) tiedEvents[tieKey] = events.lastIndex
                         }
                         ordinal++
-                        previousStart = start
+                        previousStarts[voiceStaff] = start
+                        previousEventIndices[voiceStaff] = events.lastIndex
                         if (!isChord) {
                             cursor += duration
                             measureEnd = maxOf(measureEnd, cursor)
@@ -268,6 +282,7 @@ class StandardMusicXmlScoreImporter {
         val keys: List<KeySignatureChange>
     )
 
+    private data class VoiceStaffKey(val voice: String?, val staff: String?)
     private data class TieKey(val part: String, val voice: String?, val staff: String?, val pitch: Int?)
     private class MusicXmlParseException(message: String) : Exception(message)
 }

@@ -15,8 +15,8 @@ class TimewiseMusicXmlImporterTest {
         val score = (result as SymbolicImportResult.Success).score
         assertEquals(listOf("P1", "P2"), score.tracks.map { it.trackId })
         assertEquals(listOf("C4", "E4", "G4"), score.events.mapNotNull { it.pitch?.spelling })
-        assertEquals(listOf(0.0, 0.0, 0.0), score.events.map { it.beatPosition })
-        assertEquals(listOf(1.0, 1.0, 1.0), score.events.map { it.durationBeats })
+        assertEquals(listOf(0.0, 0.0, 0.0, 0.0), score.events.map { it.beatPosition })
+        assertEquals(listOf(1.0, 1.0, 1.0, 1.0), score.events.map { it.durationBeats })
         assertEquals(1, score.events.count { it.isRest })
         assertEquals(2, score.events.count { it.chordGroupId != null })
         assertTrue(score.events.all { it.provenance.sourceLocation?.contains("measure=1") == true })
@@ -42,7 +42,7 @@ class TimewiseMusicXmlImporterTest {
         assertEquals(SymbolicImportError.INVALID_SOURCE, failure(importer.import(timewiseFixture().replace("<part-list>", "<no-list>"), "bad")).error)
         assertEquals(SymbolicImportError.INVALID_SOURCE, failure(importer.import(timewiseFixture().replace("<part id=\"P2\">", "<part id=\"UNKNOWN\">"), "bad")).error)
         assertEquals(SymbolicImportError.INVALID_SOURCE, failure(importer.import(timewiseFixture().replace("<measure number=\"1\">", ""), "bad")).error)
-        assertEquals(SymbolicImportError.PARSE_FAILED, failure(importer.import(timewiseFixture().replace("<forward><duration>2</duration></forward>", "<forward><duration>99</duration></forward>"), "bad")).error)
+        assertEquals(SymbolicImportError.PARSE_FAILED, failure(importer.import(timewiseFixture().replace("</part>", "<forward><duration>99</duration></forward></part>"), "bad")).error)
         val noTempo = importer.import(timewiseFixture(), "no-tempo") as SymbolicImportResult.Success
         assertTrue(noTempo.score.tempoMap.isEmpty())
     }
