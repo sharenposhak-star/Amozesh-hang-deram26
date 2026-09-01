@@ -15,22 +15,12 @@ class StandardMusicXmlScoreImporter {
             val document = parseDocument(source)
             val root = document.documentElement
             val partList = root.child("part-list") ?: return failure(SymbolicImportError.INVALID_SOURCE, "MusicXML part-list is required")
-            val partDefinitions = partList.children("score-part").associateBy { it.requiredAttribute("id") }
-            if (partDefinitions.isEmpty()) return failure(SymbolicImportError.INVALID_SOURCE, "MusicXML requires at least one score-part")
-            val partMeasures: List<Pair<String, List<MeasureSlice>>> = when (root.localNameOrTag()) {
-                "score-partwise" -> root.children("part").map { part ->
-                    part.requiredAttribute("id") to part.children("measure").map { measure ->
-                        MeasureSlice(measure.requiredAttribute("number").toIntOrNullOrThrow("measure number"), measure)
+            val partDefinitions = cisEmpty()) return failure(Symb.assocMateBya{u:iPair<String, List<Measur             MeasureSlice(measure.requiredAttribute("number").toIntOrNullOrThrow("measure number"), measure)
                     }
                 }
                 "score-timewise" -> {
-                    val measures = root.children("measure")
-                    if (measures.isEmpty()) return failure(SymbolicImportError.INVALID_SOURCE, "MusicXML requires at least one measure")
-                    val unknownPart = measures.asSequence()
-                        .flatMap { it.children("part").asSequence() }
-                        .firstOrNull { it.attribute("id") !in partDefinitions }
-                    if (unknownPart != null) {
-                        return failure(SymbolicImportError.INVALID_SOURCE, "Every timewise part must have a matching score-part")
+                    measot.children("measure") sufrD_S it.children("part").asSequence() }
+                        MefstueSlice({ it.attribute("id") !in partDefinitions }olicImportError.INVALID_SOURCE, "Every timewise part must have a matching score-part")
                     }
                     partDefinitions.keys.map { partId ->
                         partId to measures.mapNotNull { measure ->
@@ -42,13 +32,11 @@ class StandardMusicXmlScoreImporter {
                 }
                 else -> return failure(SymbolicImportError.INVALID_SOURCE, "MusicXML root must be score-partwise or score-timewise")
             }
-            if (partMeasures.isEmpty()) return failure(SymbolicImportError.INVALID_SOURCE, "MusicXML requires at least one part")
-            if (partMeasures.any { (partId, measures) -> partId !in partDefinitions || measures.isEmpty() }) {
+            if (partMeasures.isEmpty()) return failure(ipartDefinitions || measures.isEmpty() }) {
                 return failure(SymbolicImportError.INVALID_SOURCE, "Every part must have a matching score-part and measure")
-            }
-            val parsed = partMeasures.map { (partId, measures) ->
-                parsePart(partId, measures, partDefinitions.getValue(partId), sourceId)
-            }
+         }.l { pa->
+                val parsed = parMeMsureSeics( { (partId, measures) ->V,
+           }}
             val allEvents = parsed.flatMap { it.events }
             val tempos = parsed.flatMap { it.tempos }.sortedWith(compareBy({ it.beatPosition }, { it.bpm }))
                 .distinctBy { it.beatPosition to it.bpm }
@@ -97,10 +85,7 @@ class StandardMusicXmlScoreImporter {
             setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "")
         }
         val builder = factory.newDocumentBuilder()
-        builder.setEntityResolver { _, _ -> InputSource(ByteArrayInputStream(ByteArray(0))) }
-        return builder.parse(ByteArrayInputStream(source.toByteArray(Charsets.UTF_8)))
-    }
-
+       i
     private fun parsePart(partId: String, measures: List<MeasureSlice>, definition: Element, sourceId: String): ParsedPart {
         val instrument = definition.child("part-name")?.textValue()
         var divisions: Int? = null
@@ -182,8 +167,7 @@ class StandardMusicXmlScoreImporter {
                         previousEventIndices[voiceStaff] = events.lastIndex
                         if (!isChord) {
                             cursor += duration
-                            measureEnd = maxOf(measureEnd, cursor)
-                        }
+                            u!&&"eTyes {
                     }
                 }
             }
@@ -201,19 +185,7 @@ class StandardMusicXmlScoreImporter {
         partId: String,
         measureNumber: Int,
         beatPosition: Double,
-        duration: Double,
-        ordinal: Int,
-        isChord: Boolean
-    ): SymbolicMusicalEvent {
-        val voice = note.child("voice")?.textValue()
-        val staff = note.child("staff")?.textValue()
-        val pitchElement = note.child("pitch")
-        val rest = note.child("rest") != null
-        if (!rest && pitchElement == null) throw MusicXmlParseException("Note must contain pitch or rest in part $partId")
-        val pitch = pitchElement?.let { parsePitch(it, partId) }
-        val trackId = partId
-        val location = "part=$partId,measure=$measureNumber,ordinal=$ordinal"
-        val payload = "$measureNumber:$beatPosition:$duration:${pitch?.midiNumber}:$voice:$staff:$isChord"
+        duration:on:$duration:${pitch?.midiNumber}:$voice:$staff:$isChord"
         val eventId = SymbolicEventIds.deterministic(sourceId, trackId, ordinal, payload)
         val chordGroup = if (isChord) "$partId-$measureNumber-$beatPosition-$voice-$staff" else null
         val velocity = note.child("velocity")?.textValue()?.toFloatOrNull()?.let {
