@@ -26,6 +26,9 @@ import com.example.model.MasteredSkillState
 import com.example.model.MasteredSkillUpdater
 import com.example.model.PersonalizationEngine
 import com.example.model.LearningRecommendation
+import com.example.model.ImportedScoreRecord
+import com.example.model.ScoreIngestionStore
+import com.example.data.local.ImportedScoreEntity
 
 class HandpanRepository(
     private val patternDao: PatternDao,
@@ -33,7 +36,7 @@ class HandpanRepository(
     private val lessonProgressDao: com.example.data.local.LessonProgressDao,
     private val recordingTrackDao: com.example.data.local.RecordingTrackDao,
     private val database: AppDatabase? = null
-) {
+) : ScoreIngestionStore {
     /**
      * Flow of all available patterns: Built-in + User custom patterns.
      */
@@ -97,6 +100,22 @@ class HandpanRepository(
     suspend fun deleteCustomPattern(id: String) {
         patternDao.deletePatternById(id)
     }
+
+    override suspend fun saveImportedScore(record: ImportedScoreRecord) {
+        checkNotNull(database) { "Imported score persistence requires a database" }
+            .importedScoreDao().insert(ImportedScoreEntity.fromRecord(record))
+    }
+
+    override suspend fun saveImportedExercise(record: ImportedScoreRecord, pattern: HandpanPattern) {
+        val db = checkNotNull(database) { "Imported exercise persistence requires a database" }
+        db.withTransaction {
+            patternDao.insertPattern(PatternEntity.fromDomain(pattern.copy(isCustom = true, category = PatternCategory.CUSTOM)))
+            db.importedScoreDao().insert(ImportedScoreEntity.fromRecord(record))
+        }
+    }
+
+    suspend fun getImportedScore(sourceId: String): ImportedScoreRecord? =
+        database?.importedScoreDao()?.getBySourceId(sourceId)?.toRecord()
 
     suspend fun recordPracticeSession(patternId: String, currentBpm: Int, elapsedSeconds: Int) {
         val existing = practiceProgressDao.getProgressForPattern(patternId)?.toDomain()

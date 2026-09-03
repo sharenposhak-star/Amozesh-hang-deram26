@@ -5,7 +5,9 @@ import java.security.MessageDigest
 enum class SymbolicSourceFormat {
     MIDI,
     MUSIC_XML,
-    STRUCTURED_SCORE
+    STRUCTURED_SCORE,
+    PDF,
+    IMAGE
 }
 
 enum class DataAvailability {
@@ -93,6 +95,9 @@ data class SymbolicMusicalEvent(
     val chordGroupId: String? = null,
     val trackId: String? = null,
     val channel: Int? = null,
+    val staffId: String? = null,
+    val accidental: String? = null,
+    val tie: String? = null,
     val articulation: String? = null,
     val isRest: Boolean = false,
     val provenance: MusicalProvenance,
@@ -171,6 +176,9 @@ data class NormalizedMusicalEvent(
     val measureNumber: Int,
     val beatInMeasure: Double,
     val pitch: MusicalPitch?,
+    val staffId: String? = null,
+    val accidental: String? = null,
+    val tie: String? = null,
     val velocity: Float?,
     val isRest: Boolean,
     val voiceId: String?,
@@ -183,7 +191,13 @@ data class NormalizedMusicalTimeline(
     val sourceId: String,
     val events: List<NormalizedMusicalEvent>,
     val tempoMap: List<TempoChange>,
-    val timeSignatureMap: List<TimeSignatureChange>
+    val timeSignatureMap: List<TimeSignatureChange>,
+    val sourceHash: String? = null,
+    val title: String? = null,
+    val composer: String? = null,
+    val provenance: List<MusicalProvenance> = emptyList(),
+    val trackIds: List<String> = emptyList(),
+    val keySignatureMap: List<KeySignatureChange> = emptyList()
 ) {
     init {
         require(sourceId.isNotBlank())
@@ -211,6 +225,9 @@ data class NormalizedMusicalTimeline(
                         measureNumber = event.measureNumber ?: measure,
                         beatInMeasure = event.beatPosition % beatsPerBar,
                         pitch = event.pitch,
+                        staffId = event.staffId,
+                        accidental = event.accidental,
+                        tie = event.tie,
                         velocity = event.velocity,
                         isRest = event.isRest,
                         voiceId = event.voiceId,
@@ -220,7 +237,13 @@ data class NormalizedMusicalTimeline(
                     )
                 },
                 tempoMap = score.tempoMap,
-                timeSignatureMap = score.timeSignatureMap
+                timeSignatureMap = score.timeSignatureMap,
+                sourceHash = score.metadata.sourceHash,
+                title = score.metadata.title,
+                composer = score.metadata.composer,
+                provenance = score.events.map { it.provenance }.distinct(),
+                trackIds = score.tracks.map { it.trackId },
+                keySignatureMap = score.keySignatureMap
             )
         }
     }

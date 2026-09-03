@@ -28,6 +28,10 @@ import com.example.model.PracticeMode
 import com.example.model.PracticeProgress
 import com.example.model.LearningRecommendation
 import com.example.model.PersonalizationEngine
+import com.example.model.AdaptationRequest
+import com.example.model.ScoreIngestionResult
+import com.example.model.ScoreIngestionUseCase
+import com.example.model.ScoreSource
 import com.example.util.HapticHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -94,6 +98,7 @@ class HandpanViewModel(application: Application) : AndroidViewModel(application)
         database.recordingTrackDao()
         , database
     )
+    val scoreIngestionUseCase = ScoreIngestionUseCase(store = repository)
 
     val hapticHelper = HapticHelper(context)
     val audioEngine = AudioEngine(context)
@@ -575,6 +580,18 @@ class HandpanViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             repository.saveCustomPattern(pattern)
             _appUiState.update { it.copy(showImportDialog = false) }
+        }
+    }
+
+    fun importScore(
+        source: ScoreSource,
+        request: AdaptationRequest,
+        exerciseId: String,
+        title: String? = null,
+        onResult: (ScoreIngestionResult) -> Unit
+    ) {
+        viewModelScope.launch {
+            onResult(scoreIngestionUseCase.ingestAndAdapt(source, request, exerciseId, title))
         }
     }
 
