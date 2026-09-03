@@ -1,7 +1,7 @@
 package com.example.model
 
-import java.io.ByteArrayInputStream
 import java.security.MessageDigest
+import java.io.StringReader
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Document
 import org.w3c.dom.Element
@@ -11,62 +11,52 @@ class StandardMusicXmlScoreImporter {
     fun import(source: String, sourceId: String): SymbolicImportResult {
         if (sourceId.isBlank()) return failure(SymbolicImportError.INVALID_SOURCE, "Source id is required")
         if (source.isBlank()) return failure(SymbolicImportError.INVALID_SOURCE, "MusicXML source is empty")
+        if (source.contains("<!DOCTYPE", ignoreCase = true) && source.contains("ENTITY", ignoreCase = true) && source.contains("SYSTEM", ignoreCase = true)) {
+            return failure(SymbolicImportError.INVALID_SOURCE, "External entities are not allowed in MusicXML")
+        }
+
         return try {
             val document = parseDocument(source)
-            val root = document.documentElement
-            val partList = root.child("part-list") ?: return failure(SymbolicImportError.INVALID_SOURCE, "MusicXML part-list is required")
-            val partDefinitions = cisEmpty()) return failure(Symb.assocMateBya{u:iPair<String, List<Measur             MeasureSlice(measure.requiredAttribute("number").toIntOrNullOrThrow("measure number"), measure)
-                    }
-                }
-                "score-timewise" -> {
-                    measot.children("measure") sufrD_S it.children("part").asSequence() }
-                        MefstueSlice({ it.attribute("id") !in partDefinitions }olicImportError.INVALID_SOURCE, "Every timewise part must have a matching score-part")
-                    }
-                    partDefinitions.keys.map { partId ->
-                        partId to measures.mapNotNull { measure ->
-                            measure.children("part").firstOrNull { it.attribute("id") == partId }?.let { part ->
-                                MeasureSlice(measure.requiredAttribute("number").toIntOrNullOrThrow("measure number"), part)
-                            }
-                        }
-                    }
-                }
+            val root = document.documentElement ?: return failure(SymbolicImportError.INVALID_SOURCE, "MusicXML root element is missing")
+            val partDefinitions = extractPartDefinitions(root)
+            val partMeasures = when (root.localNameOrTag()) {
+                "score-partwise" -> parsePartwiseMeasures(root, partDefinitions)
+                "score-timewise" -> parseTimewiseMeasures(root, partDefinitions)
                 else -> return failure(SymbolicImportError.INVALID_SOURCE, "MusicXML root must be score-partwise or score-timewise")
             }
-            if (partMeasures.isEmpty()) return failure(ipartDefinitions || measures.isEmpty() }) {
-                return failure(SymbolicImportError.INVALID_SOURCE, "Every part must have a matching score-part and measure")
-         }.l { pa->
-                val parsed = parMeMsureSeics( { (partId, measures) ->V,
-           }}
-            val allEvents = parsed.flatMap { it.events }
-            val tempos = parsed.flatMap { it.tempos }.sortedWith(compareBy({ it.beatPosition }, { it.bpm }))
-                .distinctBy { it.beatPosition to it.bpm }
-            val signatures = parsed.flatMap { it.signatures }
-                .sortedWith(compareBy({ it.beatPosition }, { it.timeSignature.numerator }, { it.timeSignature.denominator }))
-                .distinctBy { it.beatPosition to it.timeSignature }
-            val keys = parsed.flatMap { it.keys }
-                .sortedWith(compareBy({ it.beatPosition }, { it.key ?: "" }, { it.mode ?: "" }))
-                .distinctBy { it.beatPosition to it.key to it.mode }
-            val tracks = parsed.map { result ->
-                SymbolicTrack(trackId = result.trackId, instrument = result.instrument, events = result.events)
+            if (partMeasures.isEmpty()) return failure(SymbolicImportError.INVALID_SOURCE, "MusicXML contains no valid measures")
+
+            val parsedParts = partMeasures.map { (partId, measures) ->
+                val definition = partDefinitions[partId] ?: return failure(SymbolicImportError.INVALID_SOURCE, "Every part must have matching score-part metadata")
+                parsePart(partId, measures, definition, sourceId)
             }
-            SymbolicImportResult.Success(
-                SymbolicScore(
-                    metadata = SourceMetadata(
-                        sourceId = sourceId,
-                        title = root.child("work")?.child("work-title")?.textValue(),
-                        composer = root.child("identification")?.children("creator")
-                            ?.firstOrNull { it.attribute("type") == "composer" }?.textValue(),
-                        format = SymbolicSourceFormat.MUSIC_XML,
-                        sourceHash = sha256(source.toByteArray(Charsets.UTF_8))
-                    ),
-                    tempoMap = tempos,
-                    timeSignatureMap = signatures,
-                    keySignatureMap = keys,
-                    tracks = tracks
-                )
-            )
+
+            SymbolicScore(
+                metadata = SourceMetadata(
+                    sourceId = sourceId,
+                    title = root.child("work")?.child("work-title")?.textValue(),
+                    composer = root.child("identification")?.children("creator")
+                        ?.firstOrNull { it.attribute("type") == "composer" }?.textValue(),
+                    format = SymbolicSourceFormat.MUSIC_XML,
+                    sourceHash = sha256(source.toByteArray(Charsets.UTF_8))
+                ),
+                tempoMap = parsedParts.flatMap { it.tempos }
+                    .sortedWith(compareBy<TempoChange>({ it.beatPosition }, { it.bpm }))
+                    .distinctBy { it.beatPosition to it.bpm },
+                timeSignatureMap = parsedParts.flatMap { it.signatures }
+                    .sortedWith(compareBy<TimeSignatureChange>({ it.beatPosition }, { it.timeSignature.numerator }, { it.timeSignature.denominator }))
+                    .distinctBy { it.beatPosition to it.timeSignature },
+                keySignatureMap = parsedParts.flatMap { it.keys }
+                    .sortedWith(compareBy<KeySignatureChange>({ it.beatPosition }, { it.key ?: "" }, { it.mode ?: "" }))
+                    .distinctBy { it.beatPosition to it.key to it.mode },
+                tracks = parsedParts.map { part -> SymbolicTrack(trackId = part.trackId, instrument = part.instrument, events = part.events) }
+            ).let { SymbolicImportResult.Success(it) }
+        } catch (error: InvalidMusicXmlException) {
+            failure(SymbolicImportError.INVALID_SOURCE, error.message ?: "MusicXML source is invalid")
         } catch (error: MusicXmlParseException) {
             failure(SymbolicImportError.PARSE_FAILED, error.message ?: "MusicXML parse failed")
+        } catch (error: IllegalArgumentException) {
+            failure(SymbolicImportError.INVALID_SOURCE, error.message ?: "MusicXML source is malformed")
         } catch (error: Exception) {
             failure(SymbolicImportError.INVALID_SOURCE, error.message ?: "MusicXML source is malformed")
         }
@@ -76,149 +66,259 @@ class StandardMusicXmlScoreImporter {
         val factory = DocumentBuilderFactory.newInstance().apply {
             isNamespaceAware = true
             isCoalescing = true
-            setFeature("http://javax.xml.XMLConstants/feature/secure-processing", true)
+            isExpandEntityReferences = false
+            isXIncludeAware = false
             setFeature("http://apache.org/xml/features/disallow-doctype-decl", false)
+            setFeature("http://javax.xml.XMLConstants/feature/secure-processing", true)
             setFeature("http://xml.org/sax/features/external-general-entities", false)
             setFeature("http://xml.org/sax/features/external-parameter-entities", false)
             setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
             setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "")
             setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "")
         }
-        val builder = factory.newDocumentBuilder()
-       i
+        return factory.newDocumentBuilder().apply {
+            setEntityResolver { _, _ -> InputSource(StringReader("")) }
+        }.parse(InputSource(source.byteInputStream(Charsets.UTF_8)))
+    }
+
+    private fun extractPartDefinitions(root: Element): Map<String, Element> {
+        val partList = root.child("part-list") ?: throw InvalidMusicXmlException("MusicXML part-list is required")
+        val definitions = mutableMapOf<String, Element>()
+        for (scorePart in partList.children("score-part")) {
+            val id = scorePart.requiredAttribute("id")
+            if (id in definitions) throw InvalidMusicXmlException("Duplicate score-part id: $id")
+            definitions[id] = scorePart
+        }
+        if (definitions.isEmpty()) throw InvalidMusicXmlException("MusicXML part-list is empty")
+        return definitions
+    }
+
+    private fun parsePartwiseMeasures(root: Element, partDefinitions: Map<String, Element>): List<Pair<String, List<MeasureSlice>>> {
+        val byPart = linkedMapOf<String, MutableList<MeasureSlice>>()
+        for (part in root.children("part")) {
+            val partId = part.requiredAttribute("id")
+            if (partId !in partDefinitions) throw InvalidMusicXmlException("Part $partId must be declared in part-list")
+            if (partId in byPart) throw InvalidMusicXmlException("Duplicate part id: $partId")
+            val measures = part.children("measure")
+            if (measures.isEmpty()) throw InvalidMusicXmlException("Part $partId has no measures")
+            val seenNumbers = mutableSetOf<Int>()
+            val sliceList = mutableListOf<MeasureSlice>()
+            for (measure in measures) {
+                val number = measure.requiredAttribute("number").toIntOrNullOrThrow("measure number")
+                if (!seenNumbers.add(number)) throw InvalidMusicXmlException("Duplicate measure number $number in part $partId")
+                sliceList += MeasureSlice(number, measure)
+            }
+            byPart[partId] = sliceList
+        }
+        if (byPart.isEmpty()) throw InvalidMusicXmlException("MusicXML contains no parts")
+        return byPart.toList()
+    }
+
+    private fun parseTimewiseMeasures(root: Element, partDefinitions: Map<String, Element>): List<Pair<String, List<MeasureSlice>>> {
+        val byPart = linkedMapOf<String, MutableList<MeasureSlice>>()
+        val seenNumbersByPart = mutableMapOf<String, MutableSet<Int>>()
+        val measures = root.children("measure")
+        if (measures.isEmpty()) throw InvalidMusicXmlException("Score-timewise has no measures")
+        for (measure in measures) {
+            val measureNumber = measure.requiredAttribute("number").toIntOrNullOrThrow("measure number")
+            val partIdsInMeasure = mutableSetOf<String>()
+            for (part in measure.children("part")) {
+                val partId = part.requiredAttribute("id")
+                if (partId !in partDefinitions) throw InvalidMusicXmlException("Part $partId must be declared in part-list")
+                if (!partIdsInMeasure.add(partId)) throw InvalidMusicXmlException("Duplicate part id $partId in measure $measureNumber")
+                val seenNumbers = seenNumbersByPart.getOrPut(partId) { mutableSetOf() }
+                if (!seenNumbers.add(measureNumber)) throw InvalidMusicXmlException("Duplicate measure number $measureNumber in part $partId")
+                byPart.getOrPut(partId) { mutableListOf() }.add(MeasureSlice(measureNumber, part))
+            }
+        }
+        if (byPart.isEmpty()) throw InvalidMusicXmlException("Score-timewise contains no part data")
+        return byPart.toList()
+    }
+
     private fun parsePart(partId: String, measures: List<MeasureSlice>, definition: Element, sourceId: String): ParsedPart {
         val instrument = definition.child("part-name")?.textValue()
         var divisions: Int? = null
         var absoluteBeat = 0.0
-        var ordinal = 0
+        var eventOrdinal = 0
         val events = mutableListOf<SymbolicMusicalEvent>()
         val tempos = mutableListOf<TempoChange>()
         val signatures = mutableListOf<TimeSignatureChange>()
         val keys = mutableListOf<KeySignatureChange>()
-        val tiedEvents = mutableMapOf<TieKey, Int>()
+        val tieStarts = linkedMapOf<TieKey, Int>()
 
-        measures.forEach { measureSlice ->
+        for (measureSlice in measures) {
             val measureNumber = measureSlice.number
             val measure = measureSlice.element
             val attributes = measure.child("attributes")
-            attributes?.child("divisions")?.textValue()?.toIntOrNull()?.let {
-                if (it <= 0) throw MusicXmlParseException("Divisions must be positive in measure $measureNumber")
-                divisions = it
-            }
-            val currentDivisions = divisions ?: throw MusicXmlParseException("Divisions are required before notes")
-            attributes?.child("time")?.let { time ->
-                val numerator = time.child("beats")?.textValue()?.toIntOrNull()
-                    ?: throw MusicXmlParseException("Time numerator is invalid in measure $measureNumber")
-                val denominator = time.child("beat-type")?.textValue()?.toIntOrNull()
-                    ?: throw MusicXmlParseException("Time denominator is invalid in measure $measureNumber")
-                signatures += TimeSignatureChange(absoluteBeat, TimeSignature(numerator, denominator))
-            }
-            attributes?.child("key")?.let { key ->
-                val fifths = key.child("fifths")?.textValue()
-                    ?: throw MusicXmlParseException("Key fifths are missing in measure $measureNumber")
-                val mode = key.child("mode")?.textValue()
-                keys += KeySignatureChange(absoluteBeat, "fifths=$fifths", mode)
+            if (attributes != null) {
+                attributes.child("divisions")?.textValue()?.toIntOrNull()?.let { value ->
+                    if (value <= 0) throw MusicXmlParseException("Divisions must be positive in measure $measureNumber")
+                    divisions = value
+                }
+                attributes.child("time")?.let { time ->
+                    val numerator = time.child("beats")?.textValue()?.toIntOrNullOrThrow("time numerator")
+                        ?: throw MusicXmlParseException("Time numerator is missing in measure $measureNumber")
+                    val denominator = time.child("beat-type")?.textValue()?.toIntOrNullOrThrow("time denominator")
+                        ?: throw MusicXmlParseException("Time denominator is missing in measure $measureNumber")
+                    signatures += TimeSignatureChange(absoluteBeat, TimeSignature(numerator, denominator))
+                }
+                attributes.child("key")?.let { key ->
+                    val fifths = key.child("fifths")?.textValue()
+                    val mode = key.child("mode")?.textValue()
+                    if (fifths == null) throw MusicXmlParseException("Key fifths are missing in measure $measureNumber")
+                    keys += KeySignatureChange(absoluteBeat, "fifths=$fifths", mode)
+                }
             }
 
+            val currentDivisions = divisions ?: throw MusicXmlParseException("Divisions are required before notes in measure $measureNumber")
             var cursor = 0.0
             var measureEnd = 0.0
-            val previousStarts = mutableMapOf<VoiceStaffKey, Double>()
-            val previousEventIndices = mutableMapOf<VoiceStaffKey, Int>()
-            val expectedMeasureBeats = signatures.lastOrNull()?.timeSignature?.beatsPerBar?.toDouble()
-            measure.children().forEach { item ->
+            val voiceOffsets = mutableMapOf<VoiceStaffKey, Double>()
+            val lastStarts = mutableMapOf<VoiceStaffKey, Double>()
+
+            for (item in measure.children()) {
                 when (item.localNameOrTag()) {
                     "direction" -> item.child("sound")?.attribute("tempo")?.toDoubleOrNull()?.let { bpm ->
                         if (bpm <= 0.0) throw MusicXmlParseException("Tempo must be positive in measure $measureNumber")
                         tempos += TempoChange(absoluteBeat + cursor, bpm)
                     }
-                    "backup", "forward" -> {
-                        val duration = durationInBeats(item, currentDivisions, measureNumber)
-                        cursor = if (item.localNameOrTag() == "backup") cursor - duration else cursor + duration
+                    "backup" -> {
+                        val delta = durationInBeats(item, currentDivisions, measureNumber)
+                        cursor -= delta
                         if (cursor < 0.0) throw MusicXmlParseException("Backup moves before measure start in measure $measureNumber")
+                        measureEnd = maxOf(measureEnd, cursor)
+                    }
+                    "forward" -> {
+                        val delta = durationInBeats(item, currentDivisions, measureNumber)
+                        cursor += delta
                         measureEnd = maxOf(measureEnd, cursor)
                     }
                     "note" -> {
                         val duration = durationInBeats(item, currentDivisions, measureNumber)
                         val isChord = item.child("chord") != null
-                        val voiceStaff = VoiceStaffKey(item.child("voice")?.textValue(), item.child("staff")?.textValue())
-                        val start = if (isChord) previousStarts[voiceStaff] ?: cursor else cursor
-                        val event = parseNote(item, sourceId, partId, measureNumber, absoluteBeat + start, duration, ordinal, isChord)
+                        val voice = item.child("voice")?.textValue()
+                        val staff = item.child("staff")?.textValue()
+                        val voiceKey = VoiceStaffKey(voice, staff)
+                        val existingStart = lastStarts[voiceKey] ?: cursor
+                        val start = if (isChord) existingStart else cursor
+                        val pitch = item.child("pitch")?.let { parsePitch(it, partId) }
+                        val rest = item.child("rest") != null
+                        if (!rest && pitch == null) throw MusicXmlParseException("Note must contain pitch or rest in measure $measureNumber")
+                        val velocity = item.child("velocity")?.textValue()?.toFloatOrNull()?.let {
+                            if (it < 0.0f || it > 127.0f) throw MusicXmlParseException("Velocity is out of range in measure $measureNumber")
+                            it / 127.0f
+                        }
+                        val location = "part=$partId,measure=$measureNumber,voice=$voice,staff=$staff"
+                        val eventIdPayload = "$partId|$measureNumber|${absoluteBeat + start}|${pitch?.midiNumber ?: "rest"}|$duration|$voice|$staff|$isChord"
+                        val eventId = SymbolicEventIds.deterministic(sourceId, partId, eventOrdinal++, eventIdPayload)
+                        val event = SymbolicMusicalEvent(
+                            eventId = eventId,
+                            beatPosition = absoluteBeat + start,
+                            durationBeats = duration,
+                            measureNumber = measureNumber,
+                            pitch = pitch,
+                            velocity = velocity,
+                            voiceId = voice,
+                            trackId = partId,
+                            chordGroupId = if (isChord) "$partId-$measureNumber-$voice-$staff-${absoluteBeat + start}" else null,
+                            articulation = null,
+                            isRest = rest,
+                            provenance = MusicalProvenance(sourceId, partId, eventId, location)
+                        )
                         val tieTypes = item.children("tie").mapNotNull { it.attribute("type") }
-                        val tieKey = TieKey(partId, event.voiceId, item.child("staff")?.textValue(), event.pitch?.midiNumber)
-                        val priorIndex = tiedEvents[tieKey]
-                        val priorChordIndex = previousEventIndices[voiceStaff]
-                        if (isChord && priorChordIndex != null) {
-                            val chordId = "$partId-$measureNumber-${absoluteBeat + start}-${event.voiceId}-${item.child("staff")?.textValue()}"
-                            val priorEvent = events[priorChordIndex]
-                            events[priorChordIndex] = priorEvent.copy(chordGroupId = chordId)
+                        if (tieTypes.any { it !in setOf("start", "stop") }) {
+                            throw MusicXmlParseException("Invalid tie type in measure $measureNumber")
                         }
-                        if (priorIndex != null && "stop" in tieTypes) {
-                            val prior = events[priorIndex]
-                            events[priorIndex] = prior.copy(
-                                durationBeats = event.beatPosition + event.durationBeats - prior.beatPosition,
-                                articulation = listOfNotNull(prior.articulation, "tie-stop").distinct().joinToString(",")
+                        if (isChord) {
+                            val chordId = "$partId-$measureNumber-$voice-$staff-${absoluteBeat + start}"
+                            val previousChordIndex = events.indexOfLast {
+                                it.trackId == partId && it.voiceId == voice && it.beatPosition == absoluteBeat + start
+                            }
+                            if (previousChordIndex >= 0) {
+                                events[previousChordIndex] = events[previousChordIndex].copy(chordGroupId = chordId)
+                            }
+                        }
+                        val tieKey = TieKey(partId, voice, staff, pitch?.midiNumber)
+                        if (tieTypes.any { it == "stop" }) {
+                            val previousIndex = tieStarts[tieKey]
+                                ?: throw MusicXmlParseException("Malformed tie stop without matching tie start in measure $measureNumber")
+                            val previous = events[previousIndex]
+                            events[previousIndex] = previous.copy(
+                                durationBeats = (absoluteBeat + start + duration) - previous.beatPosition,
+                                articulation = listOfNotNull(previous.articulation, "tie-stop").distinct().joinToString(",")
                             )
+                            if (tieTypes.any { it == "start" }) {
+                                tieStarts[tieKey] = previousIndex
+                            } else {
+                                tieStarts.remove(tieKey)
+                            }
                         } else {
-                            events += event.copy(articulation = tieTypes.takeIf { it.isNotEmpty() }?.joinToString(",") { "tie-$it" })
-                            if ("start" in tieTypes) tiedEvents[tieKey] = events.lastIndex
+                            events += event.copy(
+                                articulation = tieTypes.takeIf { it.isNotEmpty() }?.joinToString(",") { "tie-$it" }
+                            )
+                            if (tieTypes.any { it == "start" }) tieStarts[tieKey] = events.lastIndex
                         }
-                        ordinal++
-                        previousStarts[voiceStaff] = start
-                        previousEventIndices[voiceStaff] = events.lastIndex
-                        if (!isChord) {
-                            cursor += duration
-                            u!&&"eTyes {
+
+                        if (rest) {
+                            measureEnd = maxOf(measureEnd, start + duration)
+                        } else if (!isChord) {
+                            val nextCursor = start + duration
+                            cursor = maxOf(cursor, nextCursor)
+                            voiceOffsets[voiceKey] = nextCursor
+                            measureEnd = maxOf(measureEnd, nextCursor)
+                        } else {
+                            val nextCursor = start + duration
+                            voiceOffsets[voiceKey] = maxOf(voiceOffsets[voiceKey] ?: start, nextCursor)
+                            measureEnd = maxOf(measureEnd, nextCursor)
+                        }
+                        lastStarts[voiceKey] = start
                     }
                 }
             }
-            if (expectedMeasureBeats != null && measureEnd > expectedMeasureBeats) {
+
+            val currentTimeSignature = signatures.lastOrNull() ?: TimeSignatureChange(absoluteBeat, TimeSignature.Common44)
+            if (measureEnd > currentTimeSignature.timeSignature.beatsPerBar) {
                 throw MusicXmlParseException("Measure content exceeds time signature in measure $measureNumber")
             }
-            absoluteBeat += measureEnd
+            val measureLength = if (measure.children("note").isEmpty()) {
+                currentTimeSignature.timeSignature.beatsPerBar.toDouble()
+            } else {
+                measureEnd
+            }
+            if (measure.children("note").isEmpty() && measureLength > 0.0) {
+                val restEvent = SymbolicMusicalEvent(
+                    eventId = SymbolicEventIds.deterministic(sourceId, partId, eventOrdinal++, "${partId}|${measureNumber}|rest|${absoluteBeat}|$measureLength"),
+                    beatPosition = absoluteBeat,
+                    durationBeats = measureLength,
+                    measureNumber = measureNumber,
+                    isRest = true,
+                    trackId = partId,
+                    provenance = MusicalProvenance(sourceId, partId, null, "part=$partId,measure=$measureNumber,implicit-rest")
+                )
+                events += restEvent
+            }
+            absoluteBeat += measureLength
         }
-        return ParsedPart(partId, instrument, events, tempos, signatures, keys)
-    }
 
-    private fun parseNote(
-        note: Element,
-        sourceId: String,
-        partId: String,
-        measureNumber: Int,
-        beatPosition: Double,
-        duration:on:$duration:${pitch?.midiNumber}:$voice:$staff:$isChord"
-        val eventId = SymbolicEventIds.deterministic(sourceId, trackId, ordinal, payload)
-        val chordGroup = if (isChord) "$partId-$measureNumber-$beatPosition-$voice-$staff" else null
-        val velocity = note.child("velocity")?.textValue()?.toFloatOrNull()?.let {
-            if (it !in 0.0f..127.0f) throw MusicXmlParseException("Velocity is out of range in $location")
-            it / 127.0f
-        }
-        return SymbolicMusicalEvent(
-            eventId = eventId,
-            beatPosition = beatPosition,
-            durationBeats = duration,
-            measureNumber = measureNumber,
-            pitch = pitch,
-            velocity = velocity,
-            voiceId = voice,
-            chordGroupId = chordGroup,
-            trackId = trackId,
-            articulation = null,
-            isRest = rest,
-            provenance = MusicalProvenance(sourceId, partId, eventId, location)
-        )
+            if (tieStarts.isNotEmpty()) {
+                throw MusicXmlParseException("Malformed tie start without matching tie stop in part $partId")
+            }
+
+        return ParsedPart(partId, instrument, events, tempos, signatures, keys)
     }
 
     private fun parsePitch(pitch: Element, partId: String): MusicalPitch {
         val step = pitch.child("step")?.textValue()?.uppercase()
         val octave = pitch.child("octave")?.textValue()?.toIntOrNull()
-        val alter = pitch.child("alter")?.textValue()?.toDoubleOrNull() ?: 0.0
-        if (step !in setOf("A", "B", "C", "D", "E", "F", "G") || octave == null || alter % 1.0 != 0.0) {
+        val alterValue = pitch.child("alter")?.textValue()?.toDoubleOrNull() ?: 0.0
+        val alter = alterValue.roundToInt()
+        if (step !in setOf("A", "B", "C", "D", "E", "F", "G") || octave == null || abs(alterValue - alter) > 0.0001) {
             throw MusicXmlParseException("Invalid pitch in part $partId")
         }
-        val pitchClass = mapOf("C" to 0, "D" to 2, "E" to 4, "F" to 5, "G" to 7, "A" to 9, "B" to 11).getValue(step!!)
-        val midi = (octave + 1) * 12 + pitchClass + alter.toInt()
+        val pitchMap = mapOf("C" to 0, "D" to 2, "E" to 4, "F" to 5, "G" to 7, "A" to 9, "B" to 11)
+        val midi = (octave!! + 1) * 12 + pitchMap.getValue(step!!) + alter
         return try {
-            MusicalPitch(midi, "$step${accidental(alter.toInt())}$octave")
+            MusicalPitch(midi, "$step${accidental(alter)}$octave")
         } catch (_: IllegalArgumentException) {
             throw MusicXmlParseException("Pitch is outside MIDI range in part $partId")
         }
@@ -240,11 +340,9 @@ class StandardMusicXmlScoreImporter {
     }
 
     private fun failure(error: SymbolicImportError, message: String) = SymbolicImportResult.Failure(error, message)
-
-    private fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+    private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     private data class MeasureSlice(val number: Int, val element: Element)
-
     private data class ParsedPart(
         val trackId: String,
         val instrument: String?,
@@ -253,10 +351,10 @@ class StandardMusicXmlScoreImporter {
         val signatures: List<TimeSignatureChange>,
         val keys: List<KeySignatureChange>
     )
-
     private data class VoiceStaffKey(val voice: String?, val staff: String?)
     private data class TieKey(val part: String, val voice: String?, val staff: String?, val pitch: Int?)
     private class MusicXmlParseException(message: String) : Exception(message)
+    private class InvalidMusicXmlException(message: String) : Exception(message)
 }
 
 private fun Element.localNameOrTag(): String = (localName ?: tagName).substringAfterLast(':')
@@ -269,3 +367,5 @@ private fun Element.attribute(name: String): String? = getAttribute(name).takeIf
 private fun Element.requiredAttribute(name: String): String = attribute(name) ?: throw IllegalArgumentException("Required attribute $name is missing")
 private fun Element.textValue(): String = textContent.trim()
 private fun String.toIntOrNullOrThrow(label: String): Int = toIntOrNull() ?: throw IllegalArgumentException("$label is invalid")
+private fun Double.roundToInt(): Int = kotlin.math.round(this).toInt()
+private fun abs(value: Double): Double = kotlin.math.abs(value)

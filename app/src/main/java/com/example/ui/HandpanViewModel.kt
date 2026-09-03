@@ -26,11 +26,14 @@ import com.example.model.PatternCategory
 import com.example.model.PracticeInputMode
 import com.example.model.PracticeMode
 import com.example.model.PracticeProgress
+import com.example.model.LearningRecommendation
+import com.example.model.PersonalizationEngine
 import com.example.util.HapticHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -149,6 +152,14 @@ class HandpanViewModel(application: Application) : AndroidViewModel(application)
 
     val practiceStats: StateFlow<Map<String, PracticeProgress>> = repository.allProgress
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val nextPracticeRecommendation: StateFlow<LearningRecommendation> = repository.allMasteredSkills
+        .map { states -> PersonalizationEngine.recommend(states) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            PersonalizationEngine.recommend(emptyList())
+        )
 
     val lessonProgressMap: StateFlow<Map<String, com.example.data.local.LessonProgressEntity>> = repository.allLessonProgress
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())

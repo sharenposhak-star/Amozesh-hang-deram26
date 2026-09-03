@@ -127,6 +127,7 @@ class HandpanAdaptationTest {
             com.example.model.InstrumentProfile.DEFAULT_D_KURD_9, maxSustainBeats = 0.25
         )).decisions.single()
         assertEquals(AdaptationStatus.SIMPLIFIED, sustained.status)
+        assertEquals(0.25, sustained.durationBeats, 0.0)
         assertTrue(sustained.constraintViolations.contains("sustain-limit"))
 
         val explicit = HandpanAdaptationSolver.adapt(timeline(event("right", 64, hand = com.example.model.PlayingHand.RIGHT)), com.example.model.AdaptationRequest(

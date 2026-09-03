@@ -35,11 +35,21 @@ data class DetectedPitchResult(
     val audioQuality: AudioFrameQuality? = null
 )
 
+enum class AudioCaptureErrorKind {
+    STARTUP,
+    READ
+}
+
+data class AudioCaptureError(
+    val kind: AudioCaptureErrorKind,
+    val cause: Throwable
+)
+
 /**
  * Real-time Pitch and Strike Detector for acoustic handpans.
  * Uses unified monotonic time stamps (nanoseconds) for latency-free evaluation.
  */
-class PitchDetector(
+open class PitchDetector(
     private val clock: PracticeClock = PracticeClock.Default
 ) {
 
@@ -64,10 +74,11 @@ class PitchDetector(
     private val onsetMatcher = OnsetAndPitchMatcher(SAMPLE_RATE)
 
     @SuppressLint("MissingPermission")
-    fun startListening(
+    open fun startListening(
         scaleConfig: NotePitchConfig,
         onStrikeDetected: (DetectedPitchResult, Long) -> Unit, // Monotonic timestamp in nanoseconds
-        onContinuousPitch: (DetectedPitchResult) -> Unit = {}
+        onContinuousPitch: (DetectedPitchResult) -> Unit = {},
+        onCaptureError: (AudioCaptureError) -> Unit = {}
     ): Boolean {
         if (isListening) stopListening()
         val generation = listeningGeneration.incrementAndGet()
@@ -100,9 +111,13 @@ class PitchDetector(
                 var lastRms = 0f
                 var lastStrikeTimestampNanos = 0L
 
-                while (isActive && isListening) {
-                    val readSamples = audioRecord?.read(audioBuffer, 0, audioBuffer.size) ?: 0
-                    if (readSamples < BUFFER_SIZE) continue
+                try {
+                    while (isActive && isListening) {
+                        val readSamples = audioRecord?.read(audioBuffer, 0, audioBuffer.size) ?: 0
+                        if (readSamples < 0) {
+                            throw IllegalStateException("AudioRecord.read failed with code $readSamples")
+                        }
+                        if (readSamples < BUFFER_SIZE) continue
 
                     val frameAvailableNanos = clock.nowNanos()
                     val captureTimestampNanos = frameAvailableNanos -
@@ -168,7 +183,19 @@ class PitchDetector(
                         }
                     }
 
-                    lastRms = rms
+                        lastRms = rms
+                    }
+                } catch (error: Exception) {
+                    if (listeningGeneration.get() == generation && isListening) {
+                        isListening = false
+                        onCaptureError(AudioCaptureError(AudioCaptureErrorKind.READ, error))
+                        try {
+                            audioRecord?.stop()
+                        } catch (_: Exception) {
+                        }
+                        audioRecord?.release()
+                        audioRecord = null
+                    }
                 }
             }
             return true
@@ -177,6 +204,7 @@ class PitchDetector(
             isListening = false
             audioRecord?.release()
             audioRecord = null
+            onCaptureError(AudioCaptureError(AudioCaptureErrorKind.STARTUP, e))
             return false
         }
     }
@@ -184,7 +212,7 @@ class PitchDetector(
     val isListeningNow: Boolean
         get() = isListening
 
-    fun stopListening() {
+    open fun stopListening() {
         listeningGeneration.incrementAndGet()
         isListening = false
         trackingJob?.cancel()
@@ -196,7 +224,7 @@ class PitchDetector(
         audioRecord = null
     }
 
-    fun release() {
+    open fun release() {
         listeningGeneration.incrementAndGet()
         stopListening()
         detectorScope.cancel()

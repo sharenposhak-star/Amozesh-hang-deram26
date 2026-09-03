@@ -319,7 +319,7 @@ class PracticeEngine(
             val endBar = if (currentState.isLoopEnabled) currentState.loopEndBar else pattern.bars
             val loopStartBeat = ((startBar - 1) * beatsPerBar).toDouble()
             val loopDurationNanos = MusicalTiming.beatToNanos(
-                ((endBar - startBar) * beatsPerBar).toDouble(),
+                ((endBar - startBar + 1) * beatsPerBar).toDouble(),
                 currentBpm,
                 pattern.timeSignature
             )
@@ -438,6 +438,7 @@ class PracticeEngine(
                     .coerceAtMost(currentState.ladderTargetBpm)
                 if (nextBpm != currentState.bpm) {
                     _uiState.update { it.copy(bpm = nextBpm) }
+                    acousticEvaluator.setBpm(nextBpm)
                 }
             }
 
@@ -557,12 +558,15 @@ class PracticeEngine(
         val nextBpm = bpm.coerceIn(40, 240)
         rebuildTimelinePreservingPosition(nextBpm)
         _uiState.update { it.copy(bpm = nextBpm) }
+        acousticEvaluator.setBpm(nextBpm)
     }
 
     fun setSpeedMultiplier(multiplier: Float) {
         val nextMultiplier = multiplier.coerceIn(0.25f, 3.0f)
-        rebuildTimelinePreservingPosition((_uiState.value.bpm * nextMultiplier).toInt().coerceIn(30, 300))
+        val nextBpm = (_uiState.value.bpm * nextMultiplier).toInt().coerceIn(30, 300)
+        rebuildTimelinePreservingPosition(nextBpm)
         _uiState.update { it.copy(speedMultiplier = nextMultiplier) }
+        acousticEvaluator.setBpm(nextBpm)
     }
 
     fun setPracticeMode(mode: PracticeMode) {
@@ -631,7 +635,7 @@ class PracticeEngine(
         _uiState.update { it.copy(acousticAssessmentEnabled = enabled) }
         if (enabled) {
             if (!_uiState.value.isPlaying) {
-                acousticEvaluator.toggleEnabled()
+                acousticEvaluator.setEnabled(true)
             } else {
                 _uiState.value.pattern?.let {
                 startAcousticAssessment(it)

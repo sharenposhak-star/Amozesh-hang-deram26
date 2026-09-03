@@ -138,6 +138,7 @@ class MusicXmlScoreImporterTest {
 
         assertEquals(listOf(0.0, 4.0), empty.score.events.map { it.beatPosition })
         assertEquals(SymbolicImportError.PARSE_FAILED, failure(importer.import(malformedTieFixture(), "tie")).error)
+        assertEquals(SymbolicImportError.PARSE_FAILED, failure(importer.import(unclosedTieFixture(), "unclosed-tie")).error)
         assertEquals(SymbolicImportError.INVALID_SOURCE, failure(importer.import(externalEntityFixture(), "xxe")).error)
       }
 
@@ -284,6 +285,12 @@ class MusicXmlScoreImporterTest {
     private fun malformedTieFixture() = """
         <score-partwise version="4.0"><part-list><score-part id="P1"/></part-list><part id="P1"><measure number="1">
           <attributes><divisions>1</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><tie type="stop"/></note>
+        </measure></part></score-partwise>
+    """.trimIndent()
+
+    private fun unclosedTieFixture() = """
+        <score-partwise version="4.0"><part-list><score-part id="P1"/></part-list><part id="P1"><measure number="1">
+          <attributes><divisions>1</divisions></attributes><note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><tie type="start"/></note>
         </measure></part></score-partwise>
     """.trimIndent()
 

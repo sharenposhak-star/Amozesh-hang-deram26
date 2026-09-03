@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicLong
 open class AudioAnalysisSession(
     private val detector: PitchDetector = PitchDetector()
 ) {
+    internal var onCaptureError: ((AudioCaptureError) -> Unit)? = null
     private data class Listener(
         val onStrike: (DetectedStrikeEvent) -> Unit,
         val onPitch: (DetectedPitchResult) -> Unit
@@ -43,6 +44,9 @@ open class AudioAnalysisSession(
         sessionId: String
     ): Subscription {
         val listener = Listener(onStrike, onPitch)
+        if (listening && activeSessionId != sessionId) {
+            return Subscription({}, isActive = false)
+        }
         activeSessionId = sessionId
         if (!listening) {
             microphoneLease = AudioResourceCoordinator.tryAcquire(sessionId)
@@ -73,7 +77,16 @@ open class AudioAnalysisSession(
                         )
                         listeners.forEach { it.onStrike(event) }
                     },
-                    onContinuousPitch = { result -> listeners.forEach { it.onPitch(result) } }
+                    onContinuousPitch = { result -> listeners.forEach { it.onPitch(result) } },
+                    onCaptureError = { error ->
+                        if (activeSessionId == sessionId) {
+                            listening = false
+                            listeners.clear()
+                            microphoneLease?.close()
+                            microphoneLease = null
+                            onCaptureError?.invoke(error)
+                        }
+                    }
                 )
                 listening = detector.isListeningNow
                 if (!listening) {
@@ -81,11 +94,12 @@ open class AudioAnalysisSession(
                     microphoneLease?.close()
                     microphoneLease = null
                 }
-            } catch (_: RuntimeException) {
+            } catch (error: RuntimeException) {
                 listeners -= listener
                 listening = false
                 microphoneLease?.close()
                 microphoneLease = null
+                onCaptureError?.invoke(AudioCaptureError(AudioCaptureErrorKind.STARTUP, error))
             }
         }
         return Subscription({ release(listener) }, isActive = listening)

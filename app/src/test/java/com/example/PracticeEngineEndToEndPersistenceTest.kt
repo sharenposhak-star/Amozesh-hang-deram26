@@ -170,6 +170,7 @@ class PracticeEngineEndToEndPersistenceTest {
         assertEquals(AssessmentSessionValidity.VALID.name, assessment?.validity)
         assertEquals(1, progress?.practiceCount)
         assertEquals(1, progress?.completedRounds)
+        assertTrue(room.masteredSkillDao().getAll().isNotEmpty())
 
         val duplicate = repository.persistFinalizedAssessment(
             assessment = callbackAssessment(engine),

@@ -20,6 +20,12 @@ import com.example.data.local.AssessmentEntity
 import com.example.data.local.EvidenceEntity
 import com.example.data.local.ProcessedAssessmentEntity
 import com.example.model.FinalizedAssessment
+import com.example.data.local.MasteredSkillEntity
+import com.example.model.LearningSkill
+import com.example.model.MasteredSkillState
+import com.example.model.MasteredSkillUpdater
+import com.example.model.PersonalizationEngine
+import com.example.model.LearningRecommendation
 
 class HandpanRepository(
     private val patternDao: PatternDao,
@@ -65,6 +71,15 @@ class HandpanRepository(
         recordingTrackDao.getAllRecordingTracks().map { list ->
             list.mapNotNull { it.toDomainOrNull() }
         }
+
+    val allMasteredSkills: Flow<List<MasteredSkillState>> =
+        database?.masteredSkillDao()?.observeAll()?.map { states -> states.map { it.toDomain() } }
+            ?: kotlinx.coroutines.flow.flowOf(emptyList())
+
+    suspend fun getNextRecommendation(recentPatternIds: Set<String> = emptySet()): LearningRecommendation {
+        val states = database?.masteredSkillDao()?.getAll()?.map { it.toDomain() } ?: emptyList()
+        return PersonalizationEngine.recommend(states, recentPatternIds)
+    }
 
     suspend fun getPatternById(id: String): HandpanPattern? {
         val builtin = BuiltinExercises.ALL_BUILTIN_PATTERNS.find { it.id == id }
@@ -169,6 +184,17 @@ class HandpanRepository(
             } else {
                 db.evidenceDao().insertIgnore(evidence)
                 db.processedAssessmentDao().insertIgnore(ProcessedAssessmentEntity(assessment.sessionId))
+                val masteredSkillDao = db.masteredSkillDao()
+                val practicedAt = assessment.completedAtEpochMs
+                MasteredSkillUpdater.evidenceFrom(assessment.metrics).forEach { (skill, evidence) ->
+                    val existing = masteredSkillDao.get(skill.name)?.toDomain()
+                        ?: MasteredSkillState(skill = skill)
+                    masteredSkillDao.save(
+                        MasteredSkillEntity.fromDomain(
+                            MasteredSkillUpdater.update(existing, evidence, practicedEpochMs = practicedAt)
+                        )
+                    )
+                }
                 recordPracticeSession(
                     patternId = assessment.patternId,
                     currentBpm = assessment.bpm,

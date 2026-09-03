@@ -4,6 +4,7 @@ import com.example.model.NoteEvent
 import com.example.model.TimeSignature
 import com.example.model.MusicalTarget
 import com.example.model.MusicalTargetIdentity
+import com.example.model.TargetObligation
 
 /**
  * Pre-indexed time slice in a HandpanPattern.
@@ -95,7 +96,10 @@ class PatternScheduler {
                             expectedTimestampNanos = scheduleStartTimestampNanos +
                                 MusicalTiming.beatToNanos(pos - startBeat, bpm, timeSignature),
                             expectedNotes = targetEvents.map(NoteEvent::noteNumber).toSet(),
-                            chordId = targetId
+                            chordId = targetId,
+                            obligations = targetEvents.mapIndexed { eventIndex, event ->
+                                TargetObligation("$targetId-obligation-$eventIndex", event.noteNumber)
+                            }
                         )
                     )
                 }

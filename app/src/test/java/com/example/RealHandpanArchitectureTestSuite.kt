@@ -127,6 +127,7 @@ class RealHandpanArchitectureTestSuite {
     fun test03_switchBackToRealHandpanEnablesAcoustic() {
         practiceEngine.setInputMode(PracticeInputMode.VIRTUAL_HANDPAN)
         practiceEngine.setInputMode(PracticeInputMode.REAL_HANDPAN)
+        practiceEngine.setInputMode(PracticeInputMode.REAL_HANDPAN)
         assertEquals(PracticeInputMode.REAL_HANDPAN, practiceEngine.uiState.value.inputMode)
         assertTrue(practiceEngine.uiState.value.acousticAssessmentEnabled)
     }

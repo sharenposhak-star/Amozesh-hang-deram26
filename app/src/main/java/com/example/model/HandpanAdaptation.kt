@@ -300,8 +300,11 @@ object HandpanAdaptationSolver {
         val violations = buildList {
             request.maxSustainBeats?.let { if (event.durationBeats > it) add("sustain-limit") }
         }
+        val durationBeats = request.maxSustainBeats?.let { event.durationBeats.coerceAtMost(it) }
+            ?: event.durationBeats
         return base.copy(sourcePitch = sourcePitch, targetNoteNumber = selected.field.displayNumber,
-            targetPitch = MusicalPitch(midiNumber(selected.field.scientificPitch)), status = if (violations.isEmpty()) status else AdaptationStatus.SIMPLIFIED,
+            targetPitch = MusicalPitch(midiNumber(selected.field.scientificPitch)), durationBeats = durationBeats,
+            status = if (violations.isEmpty()) status else AdaptationStatus.SIMPLIFIED,
             hand = hand, handStatus = handStatus, confidence = (1.0f - selected.distance / 12.0f).coerceIn(0.0f, 1.0f),
             reason = if (violations.isEmpty()) "${status.name.lowercase()} profile mapping" else "Duration exceeds configured sustain limit",
             constraintViolations = violations, alternatives = alternatives)

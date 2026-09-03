@@ -68,8 +68,10 @@ class BinaryMidiScoreImporter {
             }
             val tempos = parsedTracks.flatMap { it.tempos }.sortedBy { it.first }
                 .map { TempoChange(it.first.toDouble() / division, 60_000_000.0 / it.second) }
+                .distinctBy { it.beatPosition to it.bpm }
             val signatures = parsedTracks.flatMap { it.signatures }.sortedBy { it.first }
                 .map { TimeSignatureChange(it.first.toDouble() / division, TimeSignature(it.second.first, it.second.second)) }
+                .distinctBy { it.beatPosition to it.timeSignature }
             SymbolicImportResult.Success(
                 SymbolicScore(
                     metadata = SourceMetadata(sourceId, format = SymbolicSourceFormat.MIDI, sourceHash = sha256(source)),

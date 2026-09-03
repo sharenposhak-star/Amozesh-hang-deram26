@@ -130,6 +130,23 @@ class DspAndAcousticVerificationTest {
     }
 
     @Test
+    fun strongOnsetDuringWarmupIsNotDiscarded() {
+        val matcher = OnsetAndPitchMatcher(22050)
+        val config = NotePitchConfig()
+
+        matcher.processFrame(ShortArray(2048), 2048, rms = 0.005f, lastRms = 0f, config)
+        val result = matcher.processFrame(
+            buffer = ShortArray(2048),
+            readSamples = 2048,
+            rms = 0.02f,
+            lastRms = 0.005f,
+            scaleConfig = config
+        )
+
+        assertTrue(result.isStrike)
+    }
+
+    @Test
     fun testHandpanSynthesizerClippingSafety() {
         val dingPcm = HandpanSynthesizer.generateHandpanSample(
             frequency = 146.83f,

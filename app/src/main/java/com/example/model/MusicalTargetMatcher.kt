@@ -2,6 +2,11 @@ package com.example.model
 
 import kotlin.math.abs
 
+data class TargetObligation(
+    val obligationId: String,
+    val noteNumber: Int
+)
+
 data class MusicalTargetIdentity(
     val sessionId: String,
     val patternId: String,
@@ -12,19 +17,31 @@ data class MusicalTargetIdentity(
     val subdivisionIndex: Int,
     val expectedTimestampNanos: Long,
     val expectedNotes: Set<Int>,
-    val chordId: String
+    val chordId: String,
+    val obligations: List<TargetObligation> = emptyList()
 )
 
 data class MusicalTarget(
     val identity: MusicalTargetIdentity,
     val consumedNotes: Set<Int> = emptySet(),
+    val consumedObligationIds: Set<String> = emptySet(),
     val finalized: Boolean = false
 ) {
+    val effectiveObligations: List<TargetObligation>
+        get() = identity.obligations.ifEmpty {
+            identity.expectedNotes.toList().sorted().mapIndexed { index, note ->
+                TargetObligation("${identity.targetId}-obligation-$index", note)
+            }
+        }
+
+    val remainingObligations: List<TargetObligation>
+        get() = effectiveObligations.filter { it.obligationId !in consumedObligationIds }
+
     val remainingNotes: Set<Int>
-        get() = identity.expectedNotes - consumedNotes
+        get() = remainingObligations.mapTo(linkedSetOf()) { it.noteNumber }
 
     val isConsumed: Boolean
-        get() = remainingNotes.isEmpty()
+        get() = remainingObligations.isEmpty()
 }
 
 data class TimingPolicy(
@@ -57,6 +74,7 @@ data class TargetMatchDecision(
     val target: MusicalTarget?,
     val timing: TimingResult?,
     val consumedNote: Int?,
+    val consumedObligationId: String? = null,
     val duplicate: Boolean = false
 )
 
@@ -90,14 +108,17 @@ class MusicalTargetMatcher {
         val deviation = event.monotonicTimestampNanos - candidate.identity.expectedTimestampNanos
         val type = when {
             !event.pitchValid || event.detectedNote == null -> TargetMatchType.UNKNOWN
-            event.detectedNote in candidate.remainingNotes -> TargetMatchType.CORRECT
+            candidate.remainingObligations.any { it.noteNumber == event.detectedNote } -> TargetMatchType.CORRECT
             else -> TargetMatchType.WRONG
         }
         return TargetMatchDecision(
             type = type,
             target = candidate,
             timing = timingFor(deviation, policy),
-            consumedNote = if (type == TargetMatchType.CORRECT) event.detectedNote else null
+            consumedNote = if (type == TargetMatchType.CORRECT) event.detectedNote else null,
+            consumedObligationId = if (type == TargetMatchType.CORRECT) {
+                candidate.remainingObligations.first { it.noteNumber == event.detectedNote }.obligationId
+            } else null
         )
     }
 
@@ -132,7 +153,7 @@ class MusicalTargetMatcher {
 class TargetRegistry {
     private val active = linkedMapOf<String, MusicalTarget>()
     private val finalized = linkedMapOf<String, MusicalTarget>()
-    private val consumedObligations = mutableMapOf<String, MutableSet<Int>>()
+    private val consumedObligations = mutableMapOf<String, MutableSet<String>>()
     private val processedEventIds = mutableSetOf<String>()
 
     fun register(target: MusicalTarget) {
@@ -140,7 +161,7 @@ class TargetRegistry {
             "Duplicate target identity: ${target.identity.targetId}"
         }
         active[target.identity.targetId] = target
-        consumedObligations[target.identity.targetId] = target.consumedNotes.toMutableSet()
+        consumedObligations[target.identity.targetId] = target.consumedObligationIds.toMutableSet()
     }
 
     fun activeTargets(): List<MusicalTarget> = active.values.toList()
@@ -149,11 +170,14 @@ class TargetRegistry {
 
     fun apply(decision: TargetMatchDecision) {
         val target = decision.target ?: return
-        val note = decision.consumedNote ?: return
+        val obligationId = decision.consumedObligationId ?: return
         if (decision.type != TargetMatchType.CORRECT) return
         val consumed = consumedObligations.getOrPut(target.identity.targetId) { mutableSetOf() }
-        if (consumed.add(note)) {
-            active[target.identity.targetId] = target.copy(consumedNotes = consumed.toSet())
+        if (consumed.add(obligationId)) {
+            active[target.identity.targetId] = target.copy(
+                consumedNotes = target.effectiveObligations.filter { it.obligationId in consumed }.mapTo(linkedSetOf()) { it.noteNumber },
+                consumedObligationIds = consumed.toSet()
+            )
         }
     }
 

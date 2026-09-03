@@ -36,12 +36,12 @@ class AdaptiveOnsetDetector(
 
         val energyRise = rms - previousRms
         if (warmupFrames < 8) {
+            val isStrongOnset = rms >= minimumRms && energyRise >= minimumRise
             noiseFloorRms = if (warmupFrames == 0) rms else {
                 noiseFloorRms * 0.8f + rms * 0.2f
             }
             warmupFrames++
-            val firstStrongOnset = warmupFrames == 1 && rms >= minimumRms && energyRise >= minimumRise
-            return decision(firstStrongOnset, rms)
+            return decision(isStrongOnset, rms)
         }
 
         val threshold = maxOf(minimumRms, noiseFloorRms * noiseMultiplier)

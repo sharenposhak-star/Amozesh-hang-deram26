@@ -192,6 +192,18 @@ class AcousticPracticeEvaluator(
     private val targetRegistry = TargetRegistry()
     private val calibrationSession = AudioCalibrationSession()
 
+    init {
+        analysisSession.onCaptureError = { error ->
+            _state.update {
+                it.copy(
+                    isListening = false,
+                    microphoneState = MicrophoneState.MIC_ERROR,
+                    assessmentActive = false
+                )
+            }
+        }
+    }
+
     // Current expected target note events and monotonic window timestamp in nanoseconds
     @Volatile
     private var expectedNoteEvents: List<NoteEvent> = emptyList()
@@ -254,6 +266,11 @@ class AcousticPracticeEvaluator(
         practiceRunning = running
     }
 
+    fun setBpm(bpm: Int) {
+        require(bpm > 0)
+        beatDurationNanos = MusicalTiming.beatDurationNanos(bpm)
+    }
+
     fun pauseAssessment() {
         if (!_state.value.isEnabled) return
         sessionContext?.pause(clock.nowNanos())
@@ -294,7 +311,11 @@ class AcousticPracticeEvaluator(
         _state.update {
             it.copy(
                 isListening = active,
-                microphoneState = if (active) MicrophoneState.MIC_ACTIVE else MicrophoneState.MIC_UNAVAILABLE
+                microphoneState = when {
+                    active -> MicrophoneState.MIC_ACTIVE
+                    it.microphoneState == MicrophoneState.MIC_ERROR -> MicrophoneState.MIC_ERROR
+                    else -> MicrophoneState.MIC_UNAVAILABLE
+                }
             )
         }
     }
@@ -342,6 +363,7 @@ class AcousticPracticeEvaluator(
         }
         analysisSubscription?.close()
         analysisSubscription = null
+        practiceRunning = false
         _state.update {
             it.copy(
                 isEnabled = false,
@@ -371,19 +393,23 @@ class AcousticPracticeEvaluator(
     }
 
     fun release() {
+        practiceRunning = false
         analysisSubscription?.close()
         analysisSubscription = null
         if (ownsAnalysisSession) analysisSession.close()
     }
 
-    fun toggleEnabled() {
-        val willEnable = !_state.value.isEnabled
-        _state.update { it.copy(isEnabled = willEnable) }
-        if (!willEnable) {
+    fun setEnabled(enabled: Boolean) {
+        _state.update { it.copy(isEnabled = enabled) }
+        if (!enabled) {
             analysisSubscription?.close()
             analysisSubscription = null
             _state.update { it.copy(isListening = false, microphoneState = MicrophoneState.MIC_IDLE) }
         }
+    }
+
+    fun toggleEnabled() {
+        setEnabled(!_state.value.isEnabled)
     }
 
     fun dismissSummary() {
@@ -438,14 +464,14 @@ class AcousticPracticeEvaluator(
         }
         expirePendingEvents(clock.nowNanos())
         targetRegistry.register(target)
-        target.identity.expectedNotes.forEachIndexed { index, noteNumber ->
+        target.effectiveObligations.forEach { obligation ->
             timeline.append(
                 AssessmentTimelineEvent(
-                    eventId = "${target.identity.targetId}-expected-$index",
+                    eventId = "${obligation.obligationId}-expected",
                     sessionId = target.identity.sessionId,
                     loopId = target.identity.loopId,
                     sequenceIndex = target.identity.sequenceIndex,
-                    expectedNote = noteNumber,
+                    expectedNote = obligation.noteNumber,
                     detectedNote = null,
                     eventType = AssessmentEventType.EXPECTED,
                     expectedTimestampNanos = target.identity.expectedTimestampNanos,
@@ -459,7 +485,7 @@ class AcousticPracticeEvaluator(
                     isConsumed = false,
                     assessmentSessionId = target.identity.sessionId,
                     patternId = target.identity.patternId,
-                    obligationId = "${target.identity.targetId}-$noteNumber",
+                    obligationId = obligation.obligationId,
                     expectedNotes = target.identity.expectedNotes
                 )
             )
@@ -574,14 +600,14 @@ class AcousticPracticeEvaluator(
                 isConsumed = isPitchMatch,
                 assessmentSessionId = decision.target.identity.sessionId,
                 patternId = decision.target.identity.patternId,
-                obligationId = "${decision.target.identity.targetId}-${event.detectedNote ?: expectedNoteNumbers.firstOrNull()}",
+                obligationId = decision.consumedObligationId ?: "${decision.target.identity.targetId}-unmatched",
                 expectedNotes = decision.target.identity.expectedNotes,
                 measuredAmplitude = event.onsetStrength.coerceIn(0f, 1f),
                 measuredVelocity = event.energy.coerceIn(0f, 1f),
                 accentStrength = event.onsetStrength.coerceIn(0f, 1f),
                 expectedTechnique = expectedNoteNumbers.firstOrNull()?.toTechnique(),
                 detectedTechnique = event.detectedNote?.toTechnique(),
-                targetNoteId = "${decision.target.identity.targetId}-${event.detectedNote ?: expectedNoteNumbers.firstOrNull()}",
+                targetNoteId = decision.consumedObligationId ?: "${decision.target.identity.targetId}-unmatched",
                 subdivision = decision.target.identity.subdivisionIndex.toSubdivision(),
                 beatPosition = decision.target.identity.beatIndex.toDouble() +
                     decision.target.identity.subdivisionIndex.toSubdivisionFraction(),

@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^\\./gradlew lint --console=plain$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
