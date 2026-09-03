@@ -16,7 +16,7 @@ Status labels mean:
 | Real Handpan First | IMPLEMENTED/WIRED | acoustic evaluator and microphone evidence path | PracticeEngine + REAL_HANDPAN | `RealHandpanArchitectureTestSuite` | device validation |
 | Virtual fallback | IMPLEMENTED/WIRED | virtual playback/synth path | PracticeEngine input mode | practice tests | must never provide acoustic evidence |
 | Lessons | IMPLEMENTED/WIRED | lesson progress entity/DAO and studio dialog | lesson UI/ViewModel | learning/persistence tests | broader lesson content |
-| Exercises | IMPLEMENTED/WIRED | `HandpanPattern`, built-ins, custom patterns | library/editor | pattern/practice tests | score-import UI |
+| Exercises | IMPLEMENTED/WIRED | `HandpanPattern`, built-ins, custom patterns, MIDI/MusicXML score import | library/editor/score picker | pattern/practice/ingestion tests | adaptation review and timeline reconstruction |
 | Practice | IMPLEMENTED/WIRED | `PracticeEngine`, scheduler, evaluator | PracticeScreen | practice/scheduler tests | hardware tests |
 | Progression | IMPLEMENTED/WIRED | practice progress and finalized assessments | repository/ViewModel | persistence tests | history UI |
 | Skill/mastery | IMPLEMENTED/WIRED | evidence mapping and mastered skill updates | repository finalization | `LearningEngineTest` | curriculum mapping |
@@ -87,4 +87,4 @@ PDF rendering is not sheet-music recognition. Image decoding/preprocessing is no
 
 ## Validation Evidence
 
-Current final validation is PASS for focused ingestion tests, full `testDebugUnitTest`, `lint`, and `assembleDebug`. See `CODEBASE_HANDOFF.md` for exact commands and APK hash.
+The prior handoff recorded PASS for focused ingestion tests, full `testDebugUnitTest`, `lint`, and `assembleDebug`. In this continuation audit, each requested Gradle validation was blocked before task execution because the container has no Android SDK location (`ANDROID_HOME`/`local.properties`).

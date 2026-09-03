@@ -14,6 +14,7 @@ import com.example.model.ScoreIngestionStore
 import com.example.model.ScoreIngestionUseCase
 import com.example.model.ScoreSource
 import com.example.model.InstrumentProfile
+import com.example.model.scoreSourceFromImportableBytes
 import java.io.Closeable
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -28,6 +29,16 @@ class ScoreIngestionPipelineTest {
         assertEquals(DetectedScoreFormat.PDF, detected("%PDF-1.7".encodeToByteArray()))
         assertEquals(DetectedScoreFormat.IMAGE, detected(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)))
         assertTrue(ScoreFormatDetector.detect("not a score".encodeToByteArray()) is FormatDetectionResult.Unsupported)
+    }
+
+    @Test
+    fun importableBytesBecomeCanonicalTypedSources() {
+        val midi = scoreSourceFromImportableBytes("midi-source", midiBytes())
+        val musicXml = scoreSourceFromImportableBytes("xml-source", minimalMusicXml().encodeToByteArray())
+
+        assertTrue(midi is ScoreSource.BinaryMidi)
+        assertTrue(musicXml is ScoreSource.MusicXml)
+        assertEquals("xml-source", musicXml?.sourceId)
     }
 
     @Test

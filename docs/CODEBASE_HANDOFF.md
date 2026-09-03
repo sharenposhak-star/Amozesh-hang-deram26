@@ -9,10 +9,10 @@ Generated from the repository source tree on 2026-09-03. This document describes
 | Repository | `Amozesh-hang-deram25` from Git remotes; attached repository identity says `Amozesh-hang-deram24` |
 | Owner/remotes | `origin`: `https://github.com/alikakai2101-sys/Amozesh-hang-deram25`; `upstream`: `https://github.com/alikakaii194-rgb/Amozesh-hang-deram24.git` |
 | Branch | `main` |
-| HEAD | `d31a65d9bb9088bbea6bb1ce89e1877aeac7c938` |
-| Working tree | Dirty; branch is `main...origin/main` |
-| Untracked files | Yes: imported-score source/tests, schema 7, and the four handoff documents |
-| Uncommitted changes | Yes: imported-score pipeline, persistence, ViewModel wiring, and score contract changes |
+| HEAD | `cd55536d7b3fca7717f9a27e33a76b965712499d` |
+| Working tree | Clean at audit baseline; implementation changes are currently uncommitted |
+| Untracked files | None observed at audit baseline |
+| Uncommitted changes | Score byte source factory, Exercise Library file-picker caller, and focused regression test |
 | Gradle wrapper | Gradle 9.3.1 (`./gradlew --version`) |
 | AGP | 9.1.1 (`gradle/libs.versions.toml`) |
 | Kotlin | 2.2.10 catalog; Gradle reports Kotlin 2.2.21 |
@@ -40,7 +40,7 @@ Score ingestion is now an application boundary, but only some arrows have produc
 
 `ScoreSource -> ScoreIngestionUseCase -> importer/recognition boundary -> SymbolicScore -> NormalizedMusicalTimeline -> validator -> HandpanAdaptationSolver -> HandpanArrangement -> HandpanPattern -> ScoreIngestionStore/PatternDao`
 
-The ViewModel exposes `importScore`, but no screen/file picker currently calls it. Therefore the score-to-exercise path is implemented as a callable use case and repository boundary, not a complete user-facing workflow.
+The Exercise Library now calls the ViewModel's `importScore` through an OpenDocument picker for binary MIDI and MusicXML. The score-to-exercise path is user-reachable for those formats; PDF/image remain deferred without OMR.
 
 ## 3. Canonical Models
 
@@ -104,14 +104,14 @@ Legacy `expectedNotes: Set<Int>` compatibility fields remain in assessment-facin
 
 - `MainActivity.kt`: creates the Compose host and manually dispatches `AppScreen` values. Caller of screens; no score file picker.
 - `ui/screens/HomeScreen.kt`: home, mode/scale selection, built-in entry points. Uses ViewModel state.
-- `ui/screens/ExerciseLibraryScreen.kt`: built-in/custom exercise list, JSON pattern import/export, audio transcription preview. Current JSON import calls `saveCustomPattern`; it does not call `importScore`.
+- `ui/screens/ExerciseLibraryScreen.kt`: built-in/custom exercise list, JSON pattern import/export, audio transcription preview, and MIDI/MusicXML score import through `importScore`.
 - `ui/screens/PatternEditorScreen.kt`: manually creates and edits numeric `HandpanPattern` values.
 - `ui/screens/PracticeScreen.kt`: displays practice state, mode, calibration, feedback and summary; uses `PracticeEngine` through ViewModel.
 - `ui/screens/MetronomeScreen.kt`, `RhythmTrainerScreen.kt`, `SettingsScreen.kt`: existing auxiliary flows.
 - `ui/components/ImportPatternDialog.kt`: JSON pattern import only.
 - Other dialogs/components cover guides, scales, backing tracks, recording, samples, export, lessons and assessment summary.
 
-No UI redesign or score-import UI was added in this handoff phase.
+No UI redesign was added; score import uses the existing Exercise Library surface.
 
 ## 10. Tests and Validation
 

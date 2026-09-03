@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -45,12 +46,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -60,6 +63,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.example.model.DifficultyLevel
 import com.example.model.HandpanPattern
 import com.example.model.PatternCategory
+import com.example.model.AdaptationRequest
+import com.example.model.ScoreIngestionResult
+import com.example.model.scoreSourceFromImportableBytes
 import com.example.ui.AppScreen
 import com.example.ui.HandpanViewModel
 import com.example.ui.components.ExportPatternDialog
@@ -73,6 +79,9 @@ import com.example.ui.theme.HandpanBronze
 import com.example.ui.theme.HandpanGold
 import com.example.ui.theme.HandpanGoldLight
 import com.example.ui.theme.HandpanTerracotta
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ExerciseLibraryScreen(
@@ -86,9 +95,42 @@ fun ExerciseLibraryScreen(
     val appState by viewModel.appUiState.collectAsStateWithLifecycle()
     val practiceStats by viewModel.practiceStats.collectAsStateWithLifecycle()
     val transcriptionState by viewModel.transcriptionState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var scoreImportMessage by remember { mutableStateOf<String?>(null) }
     val audioPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let(viewModel::transcribeAudio) }
+    val scorePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val sourceId = uri.toString()
+            coroutineScope.launch {
+                val source = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        scoreSourceFromImportableBytes(sourceId, input.readBytes())
+                    }
+                }
+                if (source == null) {
+                    scoreImportMessage = "فقط فایل MIDI یا MusicXML قابل ورود است."
+                } else {
+                    viewModel.importScore(
+                        source = source,
+                        request = AdaptationRequest(viewModel.appUiState.value.currentInstrumentProfile),
+                        exerciseId = "imported-${sourceId.hashCode()}"
+                    ) { result ->
+                        scoreImportMessage =
+                            when (result) {
+                                is ScoreIngestionResult.Adapted -> "قطعه با موفقیت به تمرین افزوده شد."
+                                is ScoreIngestionResult.Partial -> "تمرین افزوده شد؛ بخشی از قطعه ساده‌سازی شده است."
+                                else -> "ورود قطعه انجام نشد: ${result.status.name}"
+                            }
+                    }
+                }
+            }
+        }
+    }
 
     var selectedCategoryFilter by remember { mutableStateOf<PatternCategory?>(appState.selectedCategory) }
     var searchQuery by remember { mutableStateOf("") }
@@ -175,6 +217,12 @@ fun ExerciseLibraryScreen(
                     ) {
                         Icon(Icons.Default.FileDownload, contentDescription = "دریافت الگو", tint = HandpanGoldLight)
                     }
+                    IconButton(
+                        onClick = { scorePicker.launch(arrayOf("audio/midi", "application/xml", "text/xml", "application/vnd.recordare.musicxml+xml")) },
+                        modifier = Modifier.testTag("library_import_score_button")
+                    ) {
+                        Icon(Icons.Default.MusicNote, contentDescription = "ورود قطعه", tint = HandpanGoldLight)
+                    }
 
                     IconButton(
                         onClick = { onNavigate(AppScreen.PATTERN_EDITOR) },
@@ -183,6 +231,10 @@ fun ExerciseLibraryScreen(
                         Icon(Icons.Default.Add, contentDescription = "ساخت الگو", tint = HandpanGold)
                     }
                 }
+            }
+
+            scoreImportMessage?.let { message ->
+                Text(message, color = HandpanGoldLight, modifier = Modifier.padding(bottom = 8.dp))
             }
 
             if (transcriptionState.isAnalyzing || transcriptionState.result != null || transcriptionState.errorMessage != null) {

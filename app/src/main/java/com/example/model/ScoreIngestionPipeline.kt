@@ -54,6 +54,17 @@ sealed class ScoreSource {
     data class Image(override val sourceId: String, val source: ImageScoreSource) : ScoreSource()
 }
 
+fun scoreSourceFromImportableBytes(sourceId: String, bytes: ByteArray): ScoreSource? {
+    return when (val detection = ScoreFormatDetector.detect(bytes)) {
+        is FormatDetectionResult.Detected -> when (detection.format) {
+            DetectedScoreFormat.MIDI_BINARY -> ScoreSource.BinaryMidi(sourceId, bytes)
+            DetectedScoreFormat.MUSIC_XML -> ScoreSource.MusicXml(sourceId, bytes.toString(StandardCharsets.UTF_8))
+            else -> null
+        }
+        is FormatDetectionResult.Unsupported -> null
+    }
+}
+
 enum class ScoreIngestionStatus { SUCCESS, PARTIAL, UNCERTAIN, REJECTED, UNSUPPORTED, FAILED }
 
 sealed class ScoreIngestionError(open val message: String) {

@@ -83,7 +83,7 @@ ScoreSource
 
 ## Caller Truth
 
-- `ExerciseLibraryScreen` calls JSON `saveCustomPattern`; it does not call `HandpanViewModel.importScore`.
+- `ExerciseLibraryScreen` calls JSON `saveCustomPattern` and uses an OpenDocument picker for binary MIDI/MusicXML, converting bytes through `scoreSourceFromImportableBytes` before calling `HandpanViewModel.importScore`.
 - `HandpanViewModel.importScore` calls `ScoreIngestionUseCase.ingestAndAdapt` asynchronously and returns a typed result callback.
 - `ScoreIngestionUseCase` calls `saveImportedScore` on successful import and `saveImportedExercise` after successful adaptation.
 - `PracticeEngine` is loaded from ViewModel with a `HandpanPattern`; it does not import scores itself.

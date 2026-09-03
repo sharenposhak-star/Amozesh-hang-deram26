@@ -30,13 +30,13 @@ The next coding agent must treat the current source tree as authoritative and mu
 
 ## Recommended Order
 
-### PHASE A: Complete Application Wiring
+### PHASE A: Complete Application Wiring (completed in this continuation audit)
 
 Likely files: `HandpanViewModel.kt`, `ExerciseLibraryScreen.kt`, `ImportPatternDialog.kt`, `MainActivity.kt`, pipeline tests.
 
-Prerequisite: use the existing `ScoreIngestionUseCase`, `ScoreSource`, and repository store. Output: file-picker/import result/review entry point without changing PracticeEngine. Tests: ViewModel/use-case caller and rejection states. Do not replace REAL_HANDPAN or create a second importer.
+Prerequisite: use the existing `ScoreIngestionUseCase`, `ScoreSource`, and repository store. The Exercise Library now provides a MIDI/MusicXML file-picker caller and result message without changing PracticeEngine. The canonical byte-to-source boundary is covered by `ScoreIngestionPipelineTest`. PDF/Image remain unsupported without a real OMR engine.
 
-Acceptance: binary MIDI and MusicXML can be selected through a real UI caller; invalid/uncertain/PDF-without-OMR states are visible as failures; successful adapted exercises appear in the existing library.
+Acceptance: binary MIDI and MusicXML can be selected through the Exercise Library caller; unsupported bytes and ingestion/adaptation failures are surfaced; successful adapted exercises appear through the existing library flow.
 
 ### PHASE B: Adaptation Review and Quality Policy
 
