@@ -98,6 +98,7 @@ fun ExerciseLibraryScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var scoreImportMessage by remember { mutableStateOf<String?>(null) }
+    var pendingAdaptation by remember { mutableStateOf<ScoreIngestionResult.Partial?>(null) }
     val audioPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let(viewModel::transcribeAudio) }
@@ -123,7 +124,10 @@ fun ExerciseLibraryScreen(
                         scoreImportMessage =
                             when (result) {
                                 is ScoreIngestionResult.Adapted -> "قطعه با موفقیت به تمرین افزوده شد."
-                                is ScoreIngestionResult.Partial -> "تمرین افزوده شد؛ بخشی از قطعه ساده‌سازی شده است."
+                                is ScoreIngestionResult.Partial -> {
+                                    pendingAdaptation = result
+                                    "این قطعه نیاز به تأیید تغییرات دارد."
+                                }
                                 else -> "ورود قطعه انجام نشد: ${result.status.name}"
                             }
                     }
@@ -235,6 +239,29 @@ fun ExerciseLibraryScreen(
 
             scoreImportMessage?.let { message ->
                 Text(message, color = HandpanGoldLight, modifier = Modifier.padding(bottom = 8.dp))
+            }
+
+            pendingAdaptation?.let { partial ->
+                Card(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = CardDefaults.cardColors(containerColor = CharcoalSurface)) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("بازبینی سازگارسازی", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text(partial.reasons.joinToString("، "), color = HandpanGoldLight, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = {
+                                viewModel.approveAdaptation(partial) { result ->
+                                    pendingAdaptation = null
+                                    scoreImportMessage = if (result is ScoreIngestionResult.Adapted) "تمرین تأیید و ذخیره شد." else "تأیید سازگارسازی ناموفق بود."
+                                }
+                            }) { Text("تأیید و ذخیره") }
+                            Button(onClick = {
+                                viewModel.rejectAdaptation(partial) {
+                                    pendingAdaptation = null
+                                    scoreImportMessage = "سازگارسازی رد شد و تمرینی ذخیره نشد."
+                                }
+                            }) { Text("رد کردن") }
+                        }
+                    }
+                }
             }
 
             if (transcriptionState.isAnalyzing || transcriptionState.result != null || transcriptionState.errorMessage != null) {

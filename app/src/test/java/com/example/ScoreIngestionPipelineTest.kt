@@ -1,6 +1,7 @@
 package com.example
 
 import com.example.model.AdaptationRequest
+import com.example.model.AdaptationApproval
 import com.example.model.DetectedScoreFormat
 import com.example.model.FormatDetectionResult
 import com.example.model.ImageScoreSource
@@ -94,6 +95,79 @@ class ScoreIngestionPipelineTest {
         assertEquals("adaptable", adapted.arrangement.decisions.single().sourceProvenance?.sourceId)
         assertEquals("exercise-adapted", store.patternId)
         assertEquals(1, adapted.pattern.activeNotes.size)
+        assertEquals(AdaptationApproval.APPROVED, adapted.record.adaptationApproval)
+    }
+
+    @Test
+    fun partialAdaptationIsPendingAndDoesNotPersistPlayableExercise() = runBlocking {
+        val store = MemoryStore()
+        val result = ScoreIngestionUseCase(store = store).ingestAndAdapt(
+            ScoreSource.BinaryMidi("partial", simultaneousMidiBytes()),
+            AdaptationRequest(InstrumentProfile.DEFAULT_D_KURD_9, maxSimultaneousNotes = 1),
+            "exercise-partial"
+        )
+
+        assertTrue(result is ScoreIngestionResult.Partial)
+        assertEquals(AdaptationApproval.PENDING, store.record?.adaptationApproval)
+        assertEquals(null, (result as ScoreIngestionResult.Partial).record.exerciseId)
+        assertEquals(null, store.patternId)
+        assertEquals("partial", store.record?.provenance?.single()?.sourceId)
+    }
+
+    @Test
+    fun approvedPartialAdaptationPersistsPlayableExerciseAndApprovalSurvivesReload() = runBlocking {
+        val store = MemoryStore()
+        val pending = ScoreIngestionUseCase(store = store).ingestAndAdapt(
+            ScoreSource.BinaryMidi("approve", simultaneousMidiBytes()),
+            AdaptationRequest(InstrumentProfile.DEFAULT_D_KURD_9, maxSimultaneousNotes = 1),
+            "exercise-approved"
+        ) as ScoreIngestionResult.Partial
+
+        val approved = ScoreIngestionUseCase(store = store).approvePartialAdaptation(pending)
+
+        assertTrue(approved is ScoreIngestionResult.Adapted)
+        assertEquals("exercise-approved", store.patternId)
+        assertEquals(AdaptationApproval.APPROVED, store.record?.adaptationApproval)
+        assertEquals(
+            AdaptationApproval.APPROVED,
+            com.example.data.local.ImportedScoreEntity.fromRecord(store.record!!).toRecord().adaptationApproval
+        )
+    }
+
+    @Test
+    fun rejectedPartialAndImpossibleAdaptationsNeverPersistPlayableExercise() = runBlocking {
+        val store = MemoryStore()
+        val pending = ScoreIngestionUseCase(store = store).ingestAndAdapt(
+            ScoreSource.BinaryMidi("reject", simultaneousMidiBytes()),
+            AdaptationRequest(InstrumentProfile.DEFAULT_D_KURD_9, maxSimultaneousNotes = 1),
+            "exercise-rejected"
+        ) as ScoreIngestionResult.Partial
+
+        val rejected = ScoreIngestionUseCase(store = store).rejectPartialAdaptation(pending)
+        val impossible = ScoreIngestionUseCase(store = store).ingestAndAdapt(
+            ScoreSource.BinaryMidi("impossible", midiBytes(note = 61)),
+            AdaptationRequest(InstrumentProfile.DEFAULT_D_KURD_9),
+            "exercise-impossible"
+        )
+
+        assertTrue(rejected is ScoreIngestionResult.Rejected)
+        assertTrue(impossible is ScoreIngestionResult.Rejected)
+        assertEquals(null, store.patternId)
+        assertEquals(AdaptationApproval.REJECTED, store.record?.adaptationApproval)
+    }
+
+    @Test
+    fun unknownUnavailableAdaptationIsRejectedWithoutPlayableExercise() = runBlocking {
+        val store = MemoryStore()
+        val result = ScoreIngestionUseCase(store = store).ingestAndAdapt(
+            ScoreSource.MusicXml("unknown", musicXmlWithoutPitch()),
+            AdaptationRequest(InstrumentProfile.DEFAULT_D_KURD_9),
+            "exercise-unknown"
+        )
+
+        assertTrue(result is ScoreIngestionResult.Rejected)
+        assertEquals(null, store.patternId)
+        assertEquals(AdaptationApproval.REJECTED, store.record?.adaptationApproval)
     }
 
     @Test
@@ -118,6 +192,31 @@ class ScoreIngestionPipelineTest {
             0x4D, 0x54, 0x72, 0x6B, 0, 0, 0, track.size.toByte(), *track
         )
     }
+
+    private fun simultaneousMidiBytes(): ByteArray {
+        val track = byteArrayOf(
+            0, 0x90.toByte(), 62, 100,
+            0, 0x90.toByte(), 64, 100,
+            0x60, 0x80.toByte(), 62, 0,
+            0, 0x80.toByte(), 64, 0,
+            0, 0xFF.toByte(), 0x2F, 0
+        )
+        return byteArrayOf(
+            0x4D, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0, 96,
+            0x4D, 0x54, 0x72, 0x6B, 0, 0, 0, track.size.toByte(), *track
+        )
+    }
+
+    private fun musicXmlWithoutPitch() = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <score-partwise version="4.0">
+            <part-list><score-part id="P1"><part-name>Unknown</part-name></score-part></part-list>
+            <part id="P1"><measure number="1">
+                <attributes><divisions>1</divisions></attributes>
+                <note><duration>1</duration><voice>1</voice></note>
+            </measure></part>
+        </score-partwise>
+    """.trimIndent()
 
         private fun minimalMusicXml() = """
                 <?xml version="1.0" encoding="UTF-8"?>

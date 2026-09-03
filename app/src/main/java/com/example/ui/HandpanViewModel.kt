@@ -595,6 +595,18 @@ class HandpanViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun approveAdaptation(partial: ScoreIngestionResult.Partial, onResult: (ScoreIngestionResult) -> Unit) {
+        viewModelScope.launch {
+            onResult(scoreIngestionUseCase.approvePartialAdaptation(partial))
+        }
+    }
+
+    fun rejectAdaptation(partial: ScoreIngestionResult.Partial, onResult: (ScoreIngestionResult) -> Unit) {
+        viewModelScope.launch {
+            onResult(scoreIngestionUseCase.rejectPartialAdaptation(partial))
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         practiceEngine.stop()

@@ -38,21 +38,21 @@ Prerequisite: use the existing `ScoreIngestionUseCase`, `ScoreSource`, and repos
 
 Acceptance: binary MIDI and MusicXML can be selected through the Exercise Library caller; unsupported bytes and ingestion/adaptation failures are surfaced; successful adapted exercises appear through the existing library flow.
 
-### PHASE B: Adaptation Review and Quality Policy
+### PHASE B: Adaptation Review and Quality Policy (implemented in this continuation audit)
 
 Likely files: `HandpanAdaptation.kt`, `ScoreIngestionPipeline.kt`, ViewModel state, focused tests.
 
-Prerequisite: preserve decision statuses and source IDs. Output: explicit approval/rejection and configurable minimum quality/omission policy. Tests: exact, transformed, reduced, omitted, impossible and deterministic decisions. Do not silently drop source events.
+Prerequisite: preserve decision statuses and source IDs. Output: explicit persisted approval/rejection for partial adaptation; no product-defined quality threshold was invented. Tests cover exact, partial pending/approved/rejected, impossible, reload state, and provenance. Do not silently drop source events.
 
-Acceptance: user approval is required for partial adaptation; rejected/uncertain/impossible results cannot be saved or practiced.
+Acceptance: user approval is required for partial adaptation; rejected/uncertain/impossible results cannot create a playable exercise. Room migration `7->8` stores the approval state.
 
-### PHASE C: Persistence Reconstruction and History
+### PHASE C: Persistence Reconstruction and History (implemented in this continuation audit)
 
 Likely files: `ImportedScoreEntity.kt`, a canonical timeline codec near the model boundary, `ImportedScoreDao.kt`, repository, migration/tests.
 
-Prerequisite: retain schema 7 and existing JSON formats. Output: full canonical timeline/provenance round-trip and imported-score history query. Tests: round-trip every supported event field, migration upgrade, duplicate source behavior. Do not create a parallel score model.
+Prerequisite: retain schema 8 and existing JSON formats. Output: versioned canonical timeline/provenance round-trip and typed malformed/unknown-version failure through `TimelineJsonCodec`; history UI remains absent. Tests cover normalized fields, deterministic output, Room reload, and provenance. Legacy unversioned timeline compatibility remains a documented compatibility consideration.
 
-Acceptance: a persisted imported score can be reconstructed as the same canonical timeline with deterministic IDs and provenance.
+Acceptance: a newly persisted imported score can be reconstructed as the same canonical timeline with deterministic IDs and complete structured provenance.
 
 ### PHASE D: Real OMR Feasibility and Adapter
 

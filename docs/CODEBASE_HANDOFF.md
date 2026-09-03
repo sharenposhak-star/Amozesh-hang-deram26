@@ -50,7 +50,7 @@ The Exercise Library now calls the ViewModel's `importScore` through an OpenDocu
 | `app/src/main/java/com/example/model/HandpanPattern.kt` | `HandpanPattern` | Existing playable exercise contract | Built-ins, editor, repository, PracticeEngine | Implemented |
 | `app/src/main/java/com/example/model/NoteEvent.kt` | `NoteEvent` | Handpan note/rest event | Pattern, scheduler, evaluator, persistence codec | Implemented |
 | `app/src/main/java/com/example/model/InstrumentProfile.kt` | `InstrumentProfile` | Tone-field/pitch mapping for handpan scales | Adaptation request and UI scale state | Implemented |
-| `app/src/main/java/com/example/model/HandpanAdaptation.kt` | `AdaptationRequest`, `AdaptationDecision`, `HandpanArrangement`, solver, quality calculator | Canonical score adaptation and decision provenance | Score ingestion use case, adaptation tests | Implemented; UI approval is absent |
+| `app/src/main/java/com/example/model/HandpanAdaptation.kt` | `AdaptationRequest`, `AdaptationDecision`, `HandpanArrangement`, solver, quality calculator | Canonical score adaptation and decision provenance | Score ingestion use case, adaptation tests | Implemented; review state is owned by ingestion pipeline |
 | `app/src/main/java/com/example/model/ScoreIngestionFoundation.kt` | source identity, PDF/image sources, recognition contracts, validator | PDF/image/OMR boundary and recognition validation | Pipeline and foundation tests | Foundation; no OMR engine |
 | `app/src/main/java/com/example/model/ScoreIngestionPipeline.kt` | `ScoreFormatDetector`, `ScoreSource`, `ScoreIngestionUseCase`, result/error contracts | One application ingestion boundary | ViewModel and pipeline tests | Implemented for binary MIDI/MusicXML; PDF/image deferred |
 
@@ -94,9 +94,9 @@ Legacy `expectedNotes: Set<Int>` compatibility fields remain in assessment-facin
 
 ## 8. Persistence
 
-`AppDatabase` is Room version 7. Migrations are `1->2`, `2->3`, `3->4`, `4->5`, `5->6`, and `6->7`. Entities: `PatternEntity`, `PracticeProgressEntity`, `LessonProgressEntity`, `RecordingTrackEntity`, `AssessmentEntity`, `EvidenceEntity`, `ProcessedAssessmentEntity`, `MasteredSkillEntity`, and `ImportedScoreEntity`. DAOs exist for each entity family, including `ImportedScoreDao`.
+`AppDatabase` is Room version 8. Migrations are `1->2`, `2->3`, `3->4`, `4->5`, `5->6`, `6->7`, and `7->8`. Imported score records persist deterministic `NOT_REQUIRED`, `PENDING`, `APPROVED`, or `REJECTED` adaptation approval state. Entities and DAOs remain unchanged apart from the imported-score field.
 
-`PatternEntity` serializes `HandpanPattern.events` as JSON (`n`, `b`, `d`, `v`, `a`, `r`, optional `h`). `RecordingTrackEntity` uses `RecordingTrackCodec` for recorded events/timeline. Imported scores store metadata, provenance locations, format/status/confidence/page count, adaptation metrics, and a deterministic canonical timeline JSON string. The timeline JSON is a serialization boundary; a complete deserializer is not present.
+`PatternEntity` serializes `HandpanPattern.events` as JSON (`n`, `b`, `d`, `v`, `a`, `r`, optional `h`). `RecordingTrackEntity` uses `RecordingTrackCodec` for recorded events/timeline. Imported scores store metadata, complete structured provenance, format/status/confidence/page count, adaptation metrics, and a deterministic versioned canonical timeline JSON string. `TimelineJsonCodec.decode` reconstructs `NormalizedMusicalTimeline` with typed malformed/unknown-version failures.
 
 `HandpanRepository` combines built-ins with custom patterns, saves custom/imported exercises, persists imported-score records, records practice progress, and transactionally persists finalized valid assessments plus evidence and learning updates.
 
@@ -149,7 +149,7 @@ Known environment limitation: no physical microphone/device/PDF rendering instru
 - Score ingestion has a ViewModel entry point but no file-picker/review UI caller.
 - PDF rendering is implemented, but PDF sheet-music recognition is not.
 - Image loading/preprocessing is implemented, but image music recognition is not.
-- Adaptation records decisions and quality, but explicit user approval and minimum quality policy are absent.
+- Adaptation records decisions and quality, and partial adaptations now require explicit approval before playable exercise persistence. A product-defined minimum quality threshold remains absent.
 - Imported timeline JSON is stored, but no complete reconstruction API exists.
 
 ### NOT IMPLEMENTED / DEFERRED
@@ -164,7 +164,7 @@ Known environment limitation: no physical microphone/device/PDF rendering instru
 
 - Do not interpret PDF rendering as notation recognition.
 - Do not let uncertain/rejected recognition create notes or patterns.
-- The new repository `toRecord` provenance currently preserves source locations but not all structured provenance fields.
+- Newly persisted provenance is structured and lossless; historical location-only rows cannot recover fields that were never stored.
 - `HandpanPattern` checks event start positions but not whether duration exceeds pattern length.
 - No minimum adaptation-quality threshold blocks a mostly reduced arrangement.
 - No device-level audio/PDF tests are available here.

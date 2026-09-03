@@ -38,7 +38,7 @@ ScoreSource
 
 | Path | Important symbols | Role | Callers | Callees/dependencies | Status/tests |
 |---|---|---|---|---|---|
-| `model/SymbolicMusic.kt` | score/timeline/provenance/IDs | canonical score | importers, adaptation | Java SHA-256 | implemented; `SymbolicMusicTest` |
+| `model/SymbolicMusic.kt` / `model/ScoreIngestionPipeline.kt` | score/timeline/provenance/IDs and `TimelineJsonCodec` | canonical score and reconstruction | importers, adaptation, persistence reload | Java SHA-256, org.json | implemented; `SymbolicMusicTest`, persistence tests |
 | `model/ScoreIngestionFoundation.kt` | PDF/image/recognition/validator | recognition boundary | pipeline | Android Bitmap/PdfRenderer | foundation; `ScoreIngestionFoundationTest` |
 | `model/ScoreIngestionPipeline.kt` | detector/source/use case/results | application ingestion | ViewModel/tests | importers, solver, store | implemented/deferred; `ScoreIngestionPipelineTest` |
 | `model/BinaryMidiScoreImporter.kt` | binary importer | MIDI parsing | pipeline | `SymbolicEventIds` | implemented; `MidiScoreImporterTest` |
@@ -58,10 +58,10 @@ ScoreSource
 | `audio/HandpanSynthesizer.kt` | virtual sound | fallback playback | AudioEngine/virtual path | Android audio | implemented; not evidence |
 | `audio/MetronomeEngine.kt` | metronome | beat clicks/haptics | ViewModel/PracticeEngine | clock/audio | implemented |
 | `data/repository/HandpanRepository.kt` | persistence facade | patterns/progress/assessments/imports | ViewModel/PracticeEngine | Room DAOs | implemented; persistence tests |
-| `data/local/AppDatabase.kt` | Room DB v7 | schema/migrations | ViewModel/repository/tests | Room | implemented; schema 7 |
+| `data/local/AppDatabase.kt` | Room DB v8 | schema/migrations | ViewModel/repository/tests | Room | implemented; approval migration 7->8 |
 | `data/local/ImportedScoreEntity.kt` | imported metadata | score persistence | repository/DAO | pipeline record | implemented; persistence test |
 | `data/local/ImportedScoreDao.kt` | imported score queries | score persistence | repository/tests | Room | implemented |
-| `ui/HandpanViewModel.kt` | application state | UI/practice/repository composition | MainActivity/screens | repository, engines, ingestion use case | wired; score method has no UI caller |
+| `ui/HandpanViewModel.kt` | application state | UI/practice/repository composition | MainActivity/screens | repository, engines, ingestion use case | wired; score import and approval callers exist |
 | `ui/screens/ExerciseLibraryScreen.kt` | exercise library | pattern browsing/import | MainActivity | ViewModel | implemented; score import not wired |
 | `ui/screens/PatternEditorScreen.kt` | pattern editor | manual pattern creation | MainActivity | ViewModel | implemented |
 | `ui/screens/PracticeScreen.kt` | practice UI | practice controls/status | MainActivity | ViewModel/PracticeEngine | implemented |

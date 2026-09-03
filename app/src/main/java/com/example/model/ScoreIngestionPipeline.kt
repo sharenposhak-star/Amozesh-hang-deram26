@@ -1,6 +1,8 @@
 package com.example.model
 
 import java.nio.charset.StandardCharsets
+import org.json.JSONArray
+import org.json.JSONObject
 
 enum class DetectedScoreFormat {
     MIDI_BINARY,
@@ -94,8 +96,13 @@ data class ImportedScoreRecord(
     val adaptationStatus: String? = null,
     val adaptationConfidence: Double? = null,
     val omittedRatio: Double? = null,
-    val transformedRatio: Double? = null
+    val transformedRatio: Double? = null,
+    val adaptationApproval: AdaptationApproval = AdaptationApproval.NOT_REQUIRED
 )
+
+fun ImportedScoreRecord.decodeTimeline(): TimelineDecodeResult = TimelineJsonCodec.decode(timelineJson)
+
+enum class AdaptationApproval { NOT_REQUIRED, PENDING, APPROVED, REJECTED }
 
 interface ScoreIngestionStore {
     suspend fun saveImportedScore(record: ImportedScoreRecord)
@@ -148,6 +155,12 @@ class ScoreIngestionUseCase(
             it.status == AdaptationStatus.IMPOSSIBLE || it.status == AdaptationStatus.UNKNOWN_UNAVAILABLE
         }
         if (blocked.isNotEmpty()) {
+            store?.saveImportedScore(
+                imported.record.copy(
+                    adaptationStatus = blocked.joinToString(",") { it.status.name },
+                    adaptationApproval = AdaptationApproval.REJECTED
+                )
+            )
             return ScoreIngestionResult.Rejected(
                 ScoreIngestionError.AdaptationImpossible(
                     "${blocked.size} source event(s) cannot be adapted without silent omission"
@@ -156,6 +169,12 @@ class ScoreIngestionUseCase(
         }
         val pattern = arrangement.toHandpanPattern(exerciseId, title ?: imported.timeline.title ?: "Adapted ${source.sourceId}")
         if (pattern.activeNotes.isEmpty()) {
+            store?.saveImportedScore(
+                imported.record.copy(
+                    adaptationStatus = "NO_PLAYABLE_NOTES",
+                    adaptationApproval = AdaptationApproval.REJECTED
+                )
+            )
             return ScoreIngestionResult.Rejected(ScoreIngestionError.AdaptationImpossible("Adaptation produced no playable notes"))
         }
         val quality = AdaptationQualityCalculator.calculate(arrangement)
@@ -164,23 +183,55 @@ class ScoreIngestionUseCase(
             adaptationStatus = arrangement.decisions.joinToString(",") { it.status.name },
             adaptationConfidence = quality.confidence.ratio,
             omittedRatio = quality.omittedNoteRatio.ratio,
-            transformedRatio = quality.transformedNoteRatio.ratio
+            transformedRatio = quality.transformedNoteRatio.ratio,
+            adaptationApproval = if (hasTransformations(arrangement)) AdaptationApproval.PENDING else AdaptationApproval.APPROVED
         )
-        store?.saveImportedExercise(adaptedRecord, pattern)
-        val hasTransformations = arrangement.decisions.any { it.status !in setOf(AdaptationStatus.EXACT, AdaptationStatus.PRESERVED) }
-        return if (hasTransformations) {
+        if (!hasTransformations(arrangement)) {
+            store?.saveImportedExercise(adaptedRecord, pattern)
+            return ScoreIngestionResult.Adapted(imported.timeline, arrangement, pattern, adaptedRecord)
+        }
+        val pendingRecord = adaptedRecord.copy(exerciseId = null)
+        store?.saveImportedScore(pendingRecord)
+        return if (adaptedRecord.adaptationApproval == AdaptationApproval.PENDING) {
             ScoreIngestionResult.Partial(
                 imported.timeline,
-                adaptedRecord,
+            pendingRecord,
                 arrangement.decisions.filter { it.status !in setOf(AdaptationStatus.EXACT, AdaptationStatus.PRESERVED) }
                     .map { "${it.sourceEventId}: ${it.status.name}" },
                 arrangement,
                 pattern
             )
         } else {
-            ScoreIngestionResult.Adapted(imported.timeline, arrangement, pattern, adaptedRecord)
+            error("Unexpected adaptation approval state")
         }
     }
+
+    suspend fun approvePartialAdaptation(partial: ScoreIngestionResult.Partial): ScoreIngestionResult {
+        require(partial.record.adaptationApproval == AdaptationApproval.PENDING)
+        val arrangement = requireNotNull(partial.arrangement)
+        val pattern = requireNotNull(partial.pattern)
+        val approvedRecord = partial.record.copy(
+            exerciseId = pattern.id,
+            adaptationApproval = AdaptationApproval.APPROVED
+        )
+        store?.saveImportedExercise(approvedRecord, pattern)
+        return ScoreIngestionResult.Adapted(partial.timeline, arrangement, pattern, approvedRecord)
+    }
+
+    suspend fun rejectPartialAdaptation(partial: ScoreIngestionResult.Partial): ScoreIngestionResult.Rejected {
+        require(partial.record.adaptationApproval == AdaptationApproval.PENDING)
+        val rejectedRecord = partial.record.copy(
+            exerciseId = null,
+            adaptationApproval = AdaptationApproval.REJECTED
+        )
+        store?.saveImportedScore(rejectedRecord)
+        return ScoreIngestionResult.Rejected(
+            ScoreIngestionError.AdaptationImpossible("Partial adaptation was rejected by the user")
+        )
+    }
+
+    private fun hasTransformations(arrangement: HandpanArrangement): Boolean =
+        arrangement.decisions.any { it.status !in setOf(AdaptationStatus.EXACT, AdaptationStatus.PRESERVED) }
 
     private fun importMidi(source: ScoreSource.BinaryMidi): ScoreIngestionResult {
         return when (val detection = ScoreFormatDetector.detect(source.bytes)) {
@@ -238,19 +289,144 @@ class ScoreIngestionUseCase(
 }
 
 fun NormalizedMusicalTimeline.toCanonicalJson(): String {
-    fun String?.json() = if (this == null) "null" else "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
-    fun Number?.json() = this?.toString() ?: "null"
-    fun Boolean.json() = toString()
-    val tempos = tempoMap.joinToString(",") { "{\"beat\":${it.beatPosition},\"bpm\":${it.bpm}}" }
-    val signatures = timeSignatureMap.joinToString(",") { "{\"beat\":${it.beatPosition},\"numerator\":${it.timeSignature.numerator},\"denominator\":${it.timeSignature.denominator}}" }
-    val keys = keySignatureMap.joinToString(",") { "{\"beat\":${it.beatPosition},\"key\":${it.key.json()},\"mode\":${it.mode.json()}}" }
-    val serializedEvents = events.joinToString(",") {
-        "{\"id\":${it.sourceEventId.json()},\"beat\":${it.beatPosition},\"duration\":${it.durationBeats}," +
-            "\"absoluteQuarterNotes\":${it.absoluteQuarterNotes},\"measure\":${it.measureNumber},\"beatInMeasure\":${it.beatInMeasure}," +
-            "\"pitch\":${it.pitch?.midiNumber.json()},\"staff\":${it.staffId.json()},\"accidental\":${it.accidental.json()}," +
-            "\"tie\":${it.tie.json()},\"velocity\":${it.velocity.json()},\"rest\":${it.isRest.json()}," +
-            "\"voice\":${it.voiceId.json()},\"chord\":${it.chordGroupId.json()}}"
+    return TimelineJsonCodec.encode(this)
+}
+
+sealed class TimelineDecodeResult {
+    data class Success(val timeline: NormalizedMusicalTimeline) : TimelineDecodeResult()
+    data class Failure(val reason: String) : TimelineDecodeResult()
+}
+
+object TimelineJsonCodec {
+    private const val CURRENT_VERSION = 1
+
+    fun encode(timeline: NormalizedMusicalTimeline): String {
+        fun JSONObject.putNullable(key: String, value: Any?) {
+            put(key, value ?: JSONObject.NULL)
+        }
+        fun provenanceJson(provenance: MusicalProvenance) = JSONObject().apply {
+            put("sourceId", provenance.sourceId)
+            putNullable("sourceTrackId", provenance.sourceTrackId)
+            putNullable("sourceEventId", provenance.sourceEventId)
+            putNullable("sourceLocation", provenance.sourceLocation)
+        }
+        val root = JSONObject().apply {
+            put("schemaVersion", CURRENT_VERSION)
+            put("sourceId", timeline.sourceId)
+            putNullable("sourceHash", timeline.sourceHash)
+            putNullable("title", timeline.title)
+            putNullable("composer", timeline.composer)
+            put("trackIds", JSONArray(timeline.trackIds.sorted()))
+            put("provenance", JSONArray().apply {
+                timeline.provenance.sortedWith(compareBy({ it.sourceId }, { it.sourceTrackId ?: "" }, { it.sourceEventId ?: "" }, { it.sourceLocation ?: "" }))
+                    .forEach { put(provenanceJson(it)) }
+            })
+            put("tempoMap", JSONArray().apply {
+                timeline.tempoMap.sortedWith(compareBy({ it.beatPosition }, { it.bpm })).forEach {
+                    put(JSONObject().put("beat", it.beatPosition).put("bpm", it.bpm))
+                }
+            })
+            put("timeSignatureMap", JSONArray().apply {
+                timeline.timeSignatureMap.sortedWith(compareBy({ it.beatPosition }, { it.timeSignature.numerator }, { it.timeSignature.denominator }))
+                    .forEach {
+                        put(JSONObject().put("beat", it.beatPosition).put("numerator", it.timeSignature.numerator)
+                            .put("denominator", it.timeSignature.denominator).put("grouping", JSONArray(it.timeSignature.grouping)))
+                    }
+            })
+            put("keySignatureMap", JSONArray().apply {
+                timeline.keySignatureMap.sortedWith(compareBy({ it.beatPosition }, { it.key ?: "" }, { it.mode ?: "" }, { it.availability.name }))
+                    .forEach {
+                        put(JSONObject().put("beat", it.beatPosition).putNullable("key", it.key)
+                            .putNullable("mode", it.mode).put("availability", it.availability.name))
+                    }
+            })
+            put("events", JSONArray().apply {
+                timeline.events.sortedWith(compareBy({ it.beatPosition }, { it.sourceEventId })).forEach { event ->
+                    put(JSONObject().apply {
+                        put("sourceEventId", event.sourceEventId)
+                        put("beatPosition", event.beatPosition)
+                        put("durationBeats", event.durationBeats)
+                        put("absoluteQuarterNotes", event.absoluteQuarterNotes)
+                        put("measureNumber", event.measureNumber)
+                        put("beatInMeasure", event.beatInMeasure)
+                        putNullable("pitch", event.pitch?.let { JSONObject().put("midiNumber", it.midiNumber).putNullable("spelling", it.spelling) })
+                        putNullable("staffId", event.staffId)
+                        putNullable("accidental", event.accidental)
+                        putNullable("tie", event.tie)
+                        putNullable("velocity", event.velocity)
+                        put("isRest", event.isRest)
+                        putNullable("voiceId", event.voiceId)
+                        putNullable("sourceHand", event.sourceHand?.name)
+                        putNullable("chordGroupId", event.chordGroupId)
+                        put("provenance", provenanceJson(event.provenance))
+                    })
+                }
+            })
+        }
+        return root.toString()
     }
-    return "{\"sourceId\":${sourceId.json()},\"sourceHash\":${sourceHash.json()},\"title\":${title.json()},\"composer\":${composer.json()}," +
-        "\"tempo\":[$tempos],\"timeSignatures\":[$signatures],\"keySignatures\":[$keys],\"events\":[$serializedEvents]}"
+
+    fun decode(json: String): TimelineDecodeResult = runCatching {
+        val root = JSONObject(json)
+        if (root.optInt("schemaVersion", -1) != CURRENT_VERSION) {
+            return TimelineDecodeResult.Failure("Unsupported timeline schema version")
+        }
+        fun nullableString(objectValue: JSONObject, key: String): String? =
+            if (objectValue.isNull(key)) null else objectValue.getString(key)
+        fun provenance(objectValue: JSONObject): MusicalProvenance = MusicalProvenance(
+            sourceId = objectValue.getString("sourceId"),
+            sourceTrackId = nullableString(objectValue, "sourceTrackId"),
+            sourceEventId = nullableString(objectValue, "sourceEventId"),
+            sourceLocation = nullableString(objectValue, "sourceLocation")
+        )
+        fun requiredArray(key: String) = root.optJSONArray(key)
+            ?: throw IllegalArgumentException("Missing timeline array: $key")
+        val tempoMap = requiredArray("tempoMap").let { array ->
+            (0 until array.length()).map { index ->
+                val item = array.getJSONObject(index)
+                TempoChange(item.getDouble("beat"), item.getDouble("bpm"))
+            }
+        }
+        val timeSignatures = requiredArray("timeSignatureMap").let { array ->
+            (0 until array.length()).map { index ->
+                val item = array.getJSONObject(index)
+                val grouping = item.optJSONArray("grouping")?.let { groups -> (0 until groups.length()).map(groups::getInt) }
+                    ?: TimeSignature(item.getInt("numerator"), item.getInt("denominator")).grouping
+                TimeSignatureChange(item.getDouble("beat"), TimeSignature(item.getInt("numerator"), item.getInt("denominator"), grouping))
+            }
+        }
+        val keySignatures = requiredArray("keySignatureMap").let { array ->
+            (0 until array.length()).map { index ->
+                val item = array.getJSONObject(index)
+                KeySignatureChange(item.getDouble("beat"), nullableString(item, "key"), nullableString(item, "mode"),
+                    runCatching { DataAvailability.valueOf(item.getString("availability")) }.getOrThrow())
+            }
+        }
+        val events = requiredArray("events").let { array ->
+            (0 until array.length()).map { index ->
+                val item = array.getJSONObject(index)
+                val pitch = if (item.isNull("pitch")) null else item.getJSONObject("pitch").let {
+                    MusicalPitch(it.getInt("midiNumber"), nullableString(it, "spelling"))
+                }
+                NormalizedMusicalEvent(
+                    sourceEventId = item.getString("sourceEventId"), beatPosition = item.getDouble("beatPosition"),
+                    durationBeats = item.getDouble("durationBeats"), absoluteQuarterNotes = item.getDouble("absoluteQuarterNotes"),
+                    measureNumber = item.getInt("measureNumber"), beatInMeasure = item.getDouble("beatInMeasure"), pitch = pitch,
+                    staffId = nullableString(item, "staffId"), accidental = nullableString(item, "accidental"),
+                    tie = nullableString(item, "tie"), velocity = if (item.isNull("velocity")) null else item.getDouble("velocity").toFloat(),
+                    isRest = item.getBoolean("isRest"), voiceId = nullableString(item, "voiceId"),
+                    sourceHand = nullableString(item, "sourceHand")?.let(PlayingHand::valueOf),
+                    chordGroupId = nullableString(item, "chordGroupId"), provenance = provenance(item.getJSONObject("provenance"))
+                )
+            }
+        }
+        TimelineDecodeResult.Success(NormalizedMusicalTimeline(
+            sourceId = root.getString("sourceId"), events = events, tempoMap = tempoMap,
+            timeSignatureMap = timeSignatures, sourceHash = nullableString(root, "sourceHash"),
+            title = nullableString(root, "title"), composer = nullableString(root, "composer"),
+            provenance = (0 until requiredArray("provenance").length()).map { provenance(requiredArray("provenance").getJSONObject(it)) },
+            trackIds = (0 until requiredArray("trackIds").length()).map { requiredArray("trackIds").getString(it) },
+            keySignatureMap = keySignatures
+        ))
+    }.getOrElse { TimelineDecodeResult.Failure(it.message ?: "Malformed timeline JSON") }
 }

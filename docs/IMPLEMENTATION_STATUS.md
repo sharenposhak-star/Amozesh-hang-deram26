@@ -40,8 +40,8 @@ Status labels mean:
 | OMR | FOUNDATION ONLY/DEFERRED | `OmrEngine`, recognition result/status/uncertainty | none | recognition tests | real engine |
 | Source identity/hash | IMPLEMENTED/WIRED | SHA-256 and page identity | source/import pipeline | foundation/pipeline tests | full provenance reconstruction |
 | Score validation | IMPLEMENTED/WIRED | recognition score validator/importer validation | ingestion use case | invalid/uncertain tests | more musical invariants |
-| Adaptation | IMPLEMENTED/WIRED | solver, decisions, quality, arrangement | ingestion use case | adaptation/pipeline tests | approval/quality threshold |
-| Imported score persistence | IMPLEMENTED/WIRED | Room v7 entity/DAO/repository | use case/repository | persistence test | full timeline deserializer/history UI |
+| Adaptation | IMPLEMENTED/WIRED | solver, decisions, quality, arrangement, explicit partial approval gate | ingestion use case/library review | adaptation/pipeline tests | product-defined quality threshold |
+| Imported score persistence | IMPLEMENTED/WIRED | Room v8 entity/DAO/repository with approval state and canonical timeline reconstruction | use case/repository/reload | persistence and timeline tests | legacy unversioned timeline compatibility/history UI |
 | Imported exercise persistence | IMPLEMENTED/WIRED | existing PatternEntity in transaction | repository/store | pipeline/persistence tests | user-facing import flow |
 
 ## Score -> Exercise -> Practice Truth Table
@@ -75,14 +75,14 @@ PDF rendering is not sheet-music recognition. Image decoding/preprocessing is no
 ### VERIFIED LIMITATIONS
 
 - `HandpanPattern` validates event starts but permits duration beyond total pattern length.
-- Adaptation has no explicit minimum quality threshold or approval UI.
+- Adaptation has no product-defined minimum quality threshold; partial approval is explicit and persisted.
 - PDF multi-page recognition merge is not implemented.
 
 ### ARCHITECTURAL/DEVICE/DATA RISKS
 
 - OMR engine license, APK size, runtime and Android compatibility are unresolved.
 - Physical microphone, noise, Bluetooth, latency and PDF renderer behavior are not proven here.
-- Persisted provenance is currently location-oriented rather than a complete structured provenance codec.
+- Newly persisted provenance is structured and lossless; historical location-only rows cannot recover fields that were never stored.
 - Room schema migration tests from every historical version are limited.
 
 ## Validation Evidence
