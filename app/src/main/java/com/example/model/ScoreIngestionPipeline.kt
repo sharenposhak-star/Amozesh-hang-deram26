@@ -301,8 +301,9 @@ object TimelineJsonCodec {
     private const val CURRENT_VERSION = 1
 
     fun encode(timeline: NormalizedMusicalTimeline): String {
-        fun JSONObject.putNullable(key: String, value: Any?) {
+        fun JSONObject.putNullable(key: String, value: Any?): JSONObject {
             put(key, value ?: JSONObject.NULL)
+            return this
         }
         fun provenanceJson(provenance: MusicalProvenance) = JSONObject().apply {
             put("sourceId", provenance.sourceId)

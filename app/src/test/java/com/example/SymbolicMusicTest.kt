@@ -4,6 +4,7 @@ import com.example.model.DataAvailability
 import com.example.model.KeySignatureChange
 import com.example.model.MusicalPitch
 import com.example.model.MusicalProvenance
+import com.example.model.NormalizedMusicalEvent
 import com.example.model.NormalizedMusicalTimeline
 import com.example.model.SourceMetadata
 import com.example.model.Subdivision
@@ -17,13 +18,19 @@ import com.example.model.TimeSignature
 import com.example.model.TimeSignatureChange
 import com.example.model.PlayingHand
 import com.example.model.TimelineDecodeResult
+import com.example.model.TimelineJsonCodec
 import com.example.model.toCanonicalJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class SymbolicMusicTest {
     private val provenance = MusicalProvenance("fixture", "track-1", "source-event")
 
