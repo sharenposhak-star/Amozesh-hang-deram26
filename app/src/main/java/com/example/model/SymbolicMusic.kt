@@ -196,6 +196,7 @@ data class NormalizedMusicalTimeline(
     val title: String? = null,
     val composer: String? = null,
     val provenance: List<MusicalProvenance> = emptyList(),
+    /** Track identities are semantic; their collection order is not. */
     val trackIds: List<String> = emptyList(),
     val keySignatureMap: List<KeySignatureChange> = emptyList()
 ) {

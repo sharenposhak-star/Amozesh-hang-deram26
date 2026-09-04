@@ -103,8 +103,38 @@ class SymbolicMusicTest {
         val encoded = timeline.toCanonicalJson()
         val decoded = (TimelineJsonCodec.decode(encoded) as TimelineDecodeResult.Success).timeline
 
-        assertEquals(timeline, decoded)
+        assertSemanticTimelineEquals(timeline, decoded)
         assertTrue(encoded.contains("\"schemaVersion\":1"))
+    }
+
+    @Test
+    fun canonicalTimelineTreatsTrackOrderingAsNonSemantic() {
+        val first = NormalizedMusicalTimeline(
+            sourceId = "source-1",
+            sourceHash = "hash-1",
+            tempoMap = listOf(TempoChange(0.0, 120.0)),
+            timeSignatureMap = listOf(TimeSignatureChange(0.0, TimeSignature.Common44)),
+            keySignatureMap = emptyList(),
+            trackIds = listOf("track-2", "track-1"),
+            provenance = listOf(MusicalProvenance("source-1", "track-1", "event-1")),
+            events = listOf(
+                NormalizedMusicalEvent(
+                    "event-1", 0.0, 1.0, 0.0, 1, 0.0, MusicalPitch(62), "staff-1", null, null,
+                    0.8f, false, "voice-1", PlayingHand.RIGHT, null,
+                    MusicalProvenance("source-1", "track-1", "event-1")
+                )
+            )
+        )
+        val second = first.copy(trackIds = listOf("track-1", "track-2"))
+
+        assertSemanticTimelineEquals(first, second)
+        assertEquals(first.toCanonicalJson(), second.toCanonicalJson())
+
+        val decoded = (TimelineJsonCodec.decode(first.toCanonicalJson()) as TimelineDecodeResult.Success).timeline
+        assertEquals(listOf("track-1", "track-2"), decoded.trackIds)
+        assertEquals(first.events, decoded.events)
+        assertEquals(first.provenance, decoded.provenance)
+        assertEquals(first.events.single().provenance.sourceTrackId, decoded.events.single().provenance.sourceTrackId)
     }
 
     @Test
@@ -122,5 +152,10 @@ class SymbolicMusicTest {
         assertEquals(timeline.toCanonicalJson(), timeline.toCanonicalJson())
         assertTrue(TimelineJsonCodec.decode("{\"schemaVersion\":99}") is TimelineDecodeResult.Failure)
         assertTrue(TimelineJsonCodec.decode("not-json") is TimelineDecodeResult.Failure)
+    }
+
+    private fun assertSemanticTimelineEquals(expected: NormalizedMusicalTimeline, actual: NormalizedMusicalTimeline) {
+        assertEquals(expected.trackIds.toSet(), actual.trackIds.toSet())
+        assertEquals(expected.copy(trackIds = expected.trackIds.sorted()), actual.copy(trackIds = actual.trackIds.sorted()))
     }
 }

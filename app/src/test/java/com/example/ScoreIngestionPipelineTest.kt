@@ -113,10 +113,17 @@ class ScoreIngestionPipelineTest {
         )
 
         assertTrue(result is ScoreIngestionResult.Partial)
+        val partial = result as ScoreIngestionResult.Partial
+        val provenance = requireNotNull(store.record?.provenance)
+        val sourceEventIds = partial.arrangement?.decisions?.map { it.sourceEventId } ?: emptyList()
         assertEquals(AdaptationApproval.PENDING, store.record?.adaptationApproval)
-        assertEquals(null, (result as ScoreIngestionResult.Partial).record.exerciseId)
+        assertEquals(null, partial.record.exerciseId)
         assertEquals(null, store.patternId)
-        assertEquals("partial", store.record?.provenance?.single()?.sourceId)
+        assertEquals(2, sourceEventIds.size)
+        assertEquals(2, provenance.size)
+        assertEquals(2, sourceEventIds.toSet().size)
+        assertTrue(provenance.all { it.sourceId == "partial" })
+        assertEquals(sourceEventIds.toSet(), provenance.mapNotNull { it.sourceEventId }.toSet())
     }
 
     @Test

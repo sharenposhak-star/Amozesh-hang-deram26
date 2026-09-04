@@ -203,7 +203,6 @@ class StandardMusicXmlScoreImporter {
                         val start = if (isChord) existingStart else cursor
                         val pitch = item.child("pitch")?.let { parsePitch(it, partId) }
                         val rest = item.child("rest") != null
-                        if (!rest && pitch == null) throw MusicXmlParseException("Note must contain pitch or rest in measure $measureNumber")
                         val velocity = item.child("velocity")?.textValue()?.toFloatOrNull()?.let {
                             if (it < 0.0f || it > 127.0f) throw MusicXmlParseException("Velocity is out of range in measure $measureNumber")
                             it / 127.0f
