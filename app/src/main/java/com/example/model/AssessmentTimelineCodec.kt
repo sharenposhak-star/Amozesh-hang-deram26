@@ -158,6 +158,9 @@ object AssessmentTimelineCodec {
         require(events.map { it.sequenceIndex }.sorted() == (0 until events.size).toList()) {
             "Assessment sequence must be contiguous from zero"
         }
+        require(events.all { it.confidence in 0f..1f }) {
+            "Assessment confidence must be between 0 and 1"
+        }
     }
 
     private fun JSONObject.putNullable(key: String, value: Any?): JSONObject = put(key, value ?: JSONObject.NULL)

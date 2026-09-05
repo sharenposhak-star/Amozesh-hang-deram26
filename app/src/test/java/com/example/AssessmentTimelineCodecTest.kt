@@ -153,6 +153,26 @@ class AssessmentTimelineCodecTest {
     }
 
     @Test
+    fun semanticEquivalentAppendOrdersAndExpectedNoteOrdersHaveIdenticalEncoding() {
+        val first = fullEvent("first", 0, AssessmentEventType.CORRECT).copy(
+            expectedNotes = linkedSetOf(2, 1)
+        )
+        val second = fullEvent("second", 1, AssessmentEventType.WRONG).copy(
+            expectedNotes = linkedSetOf(4, 3)
+        )
+        val timelineA = AssessmentTimeline().also {
+            it.append(first)
+            it.append(second)
+        }
+        val timelineB = AssessmentTimeline().also {
+            it.append(second.copy(expectedNotes = linkedSetOf(3, 4)))
+            it.append(first.copy(expectedNotes = linkedSetOf(1, 2)))
+        }
+
+        assertEquals(AssessmentTimelineCodec.encode(timelineA), AssessmentTimelineCodec.encode(timelineB))
+    }
+
+    @Test
     fun unsupportedVersionFailsExplicitly() {
         val payload = JSONObject(AssessmentTimelineCodec.encode(AssessmentTimeline()))
             .put("eventSchemaVersion", 99)
@@ -195,6 +215,69 @@ class AssessmentTimelineCodecTest {
     }
 
     @Test
+    fun removingEachRequiredEventFieldFailsExplicitly() {
+        listOf(
+            "eventId", "sessionId", "assessmentSessionId", "sequenceIndex", "eventType",
+            "expectedNotes", "confidence", "source", "sessionValidity"
+        ).forEach { field ->
+            val payload = JSONObject(singleEventPayload())
+            payload.getJSONArray("events").getJSONObject(0).remove(field)
+            assertFailure(payload.toString())
+        }
+    }
+
+    @Test
+    fun invalidShapesAndRangesFailExplicitly() {
+        val eventsObject = JSONObject(singleEventPayload())
+            .put("events", JSONObject())
+        assertFailure(eventsObject.toString())
+
+        val wrongItemType = JSONObject(singleEventPayload())
+        wrongItemType.getJSONArray("events").put(0, "not-an-event")
+        assertFailure(wrongItemType.toString())
+
+        val missingEventObject = JSONObject(singleEventPayload())
+        missingEventObject.getJSONArray("events").put(0, JSONObject.NULL)
+        assertFailure(missingEventObject.toString())
+
+        val invalidConfidence = JSONObject(singleEventPayload())
+        invalidConfidence.getJSONArray("events").getJSONObject(0).put("confidence", 1.01)
+        assertFailure(invalidConfidence.toString())
+
+        val negativeSequence = JSONObject(singleEventPayload())
+        negativeSequence.getJSONArray("events").getJSONObject(0).put("sequenceIndex", -1)
+        assertFailure(negativeSequence.toString())
+    }
+
+    @Test
+    fun confidenceFloatBoundariesRoundTripWithoutSemanticLoss() {
+        listOf(0f, 1f, 0.375f).forEach { confidence ->
+            val event = fullEvent("confidence-$confidence", 0, AssessmentEventType.CORRECT)
+                .copy(confidence = confidence)
+            val decoded = decode(timelineOf(event)).snapshot().single()
+            assertEquals(confidence, decoded.confidence)
+        }
+    }
+
+    @Test
+    fun outOfOrderPayloadDecodesInCanonicalSequenceOrder() {
+        val payload = JSONObject(AssessmentTimelineCodec.encode(AssessmentTimeline().also {
+            it.append(fullEvent("first", 0, AssessmentEventType.CORRECT))
+            it.append(fullEvent("second", 1, AssessmentEventType.WRONG))
+        }))
+        val events = payload.getJSONArray("events")
+        val first = events.get(0)
+        val second = events.get(1)
+        events.put(0, second)
+        events.put(1, first)
+
+        val decoded = decode(payload.toString()).snapshot()
+
+        assertEquals(listOf(0, 1), decoded.map { it.sequenceIndex })
+        assertEquals(listOf("first", "second"), decoded.map { it.eventId })
+    }
+
+    @Test
     fun codecHandlesFiveHundredEventsWithoutChangingOrder() {
         val timeline = AssessmentTimeline().also { timeline ->
             repeat(500) { index -> timeline.append(fullEvent("event-$index", index, AssessmentEventType.CORRECT)) }
@@ -221,6 +304,8 @@ class AssessmentTimelineCodecTest {
         it.append(fullEvent("one", 0, AssessmentEventType.CORRECT))
         it.append(fullEvent("two", 1, AssessmentEventType.WRONG))
     })
+
+    private fun singleEventPayload(): String = timelineOf(fullEvent("single", 0, AssessmentEventType.CORRECT))
 
     private fun payloadWithoutEvents(): String = JSONObject(validPayload()).also {
         it.remove("events")
